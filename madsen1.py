@@ -25,14 +25,17 @@ class fixed_arch_problem(ElementwiseProblem):
         super().__init__(elementwise,n_var=4, n_obj=3, **kwargs)
         
         global tasks
-        tasks = ["a", "b", "c", "d"]
+        tasks = ["a", "b", "c", "d", "x", "y"]
         
         global exec_time
         exec_time = [
-            [0.9, 1.4, 0.7, 1.4],  # task 0 on PEs 0..3
-            [1.1, 1.0, 0.6, 1.0],
-            [0.8, 1.2, 0.9, 1.2],
-            [1.3, 0.9, 0.7, 0.9]
+            #fpga gpp  asic gpp
+            [0.9, 1.4, 0.7],  # a
+            [1.1, 1.0, 0.6],  # b
+            [0.8, 1.2, 0.9],  # c
+            [1.3, 0.9, 0.7],  # d
+            [0.8, 0.6, 1.0],  # x
+            [1.0, 0.7, 0.9]   # y 
         ]
         
         global weights
@@ -42,7 +45,7 @@ class fixed_arch_problem(ElementwiseProblem):
         pe_types = ["fpga", "asic", "gpp"] #0 2 1 2        
         
         global fix_pe
-        fix_pe = {"a" : pe_types[0], "b" : pe_types[3], "c" :pe_types[1], "d" : pe_types[2]}        
+        fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0], "y" : pe_types[1]} #fix pe for each task  
         
         global communication_time
         communication_time = 5        
@@ -72,24 +75,14 @@ class fixed_arch_problem(ElementwiseProblem):
         ]
         
         self.pe_power = [2.2, 1.2, 1.8, 1.2]  # watts
-        
-
-        
-
-        
 
         periods = [30, 20, 20, 30]
         # execution time, ci, the consumed energy, ei, and the memory usage, mi, are determined by the actual mapping.
         
-        
         pe_n = 4
-
         bus_n = 2
         bridge_ = 1
         #ignore bus BW and bus power consumption
-        
-        # fixed architecture
-
         
         buses = [
             [1, 1, 0, 0],
@@ -98,6 +91,7 @@ class fixed_arch_problem(ElementwiseProblem):
         
         bridges = [1, 2]
         
+        ########################### end useless for now ###########################
  
 
         
@@ -123,7 +117,7 @@ class fixed_arch_problem(ElementwiseProblem):
         # plt.show()
 
         #Computing a t-level
-        TopList = ["a", "b", "c", "d"]
+        TopList = ["a", "x", "b", "y", "c", "d"]
         def return_parents(node):
             parents = []
             for edge in weights.keys():
@@ -135,6 +129,8 @@ class fixed_arch_problem(ElementwiseProblem):
 
         def compute_t_level(TopList):
             t_level = {"a":0, "b":0, "c":0, "d":0}
+            pe_types = ["fpga", "asic", "gpp"]
+            fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0], "y" : pe_types[1]}
             for node in TopList:
                 max = 0
                 parents = return_parents(node)
@@ -142,24 +138,30 @@ class fixed_arch_problem(ElementwiseProblem):
                     t_level[node] = 0
                     continue
                 for parent in parents:
-                    if t_level[parent] + weights[(parent, node)] > max:
-                        max = t_level[parent] + weights[(parent, node)]
+                    # print(str(t_level[parent]) + " is t_level of parent", parent)
+                    # print(str(weights[(parent, node)]) + " is weight of edge", (parent, node))
+                    # print(str(exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])]) + " is exec_time of parent", parent, "on", fix_pe[parent])
+                    # print("\n")
+                    if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])] > max:
+                        max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])]
                 
                 t_level[node] = max
 
+            
+            for node in TopList:
+                print("t_level of node", node, "is", t_level[node])
+                    
+            print(t_level)
+                    
+            print("\n")
             return t_level  # return dict 
-            # for node in TopList:
-            #     print("t_level of node", node, "is", t_level[node])
-                
-            # print(t_level_list)
-                
-            # print("\n")
+
             
             
             
         #Computing a b-level
 
-        RevTopList = ["d", "c", "b", "a"]
+        RevTopList = ["d", "c", "y", "b", "x", "a"]
 
         def return_children(node):
             children = []
@@ -172,6 +174,8 @@ class fixed_arch_problem(ElementwiseProblem):
 
         def compute_b_level(RevTopList):
             b_level = {"a":0, "b":0, "c":0, "d":0}
+            pe_types = ["fpga", "asic", "gpp"]
+            fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0], "y" : pe_types[1]}
             for node in RevTopList:
                 max = 0
                 childrens = return_children(node)
@@ -179,34 +183,35 @@ class fixed_arch_problem(ElementwiseProblem):
                     b_level[node] = 0
                     continue
                 for child in childrens:
-                    if b_level[child] + weights[(node, child)] > max:
-                        max = b_level[child] + weights[(node, child)]
+                    if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][pe_types.index(fix_pe[child])] > max:
+                        max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][pe_types.index(fix_pe[child])]
                 b_level[node] = max
                 
-            # for node in RevTopList:
-            #     print("b_level of node", node, "is", b_level[node])
-            b_level_rev = dict(reversed(list(b_level.items())))
-            return b_level_rev  # return dict
-            # print(b_level_list_rev)
+            for node in RevTopList:
+                print("b_level of node", node, "is", b_level[node])
                 
-            # print("\n")
+            b_level_rev = dict(reversed(list(b_level.items())))
+            print(b_level_rev)
+            print("\n")
+            return b_level_rev  # return dict
+            
 
         
         def Computing_priorities(nodes, t_level, b_level):
             priority_list = {}
-            minpriority = -1000
             for node in nodes:
-                if b_level[node] + t_level[node] > minpriority:
-                    minpriority = b_level[node] + t_level[node]
-                    priority_list.update({node:minpriority})
+                priority = b_level[node] + t_level[node]
+                priority_list.update({node:priority})
                 print("priority of node", node, "is", b_level[node] + t_level[node])
-                
-            print(priority_list)
+            sorted_priority_list = dict(sorted(priority_list.items(), key=lambda item: item[1], reverse=True))
+            print("The priority list is (from highest to lowest):")
+            print(sorted_priority_list)
             print("\n")
+            return sorted_priority_list
                     
-        t_level = compute_t_level(TopList)                                             ###########################
-        b_level = compute_b_level(RevTopList)                                          #########   Test   ########
-        Computing_priorities(tasks, t_level, b_level)                                  ########################### 
+        t_level = compute_t_level(TopList)
+        b_level = compute_b_level(RevTopList)
+        Computing_priorities(tasks, t_level, b_level)
 
         def NumـUnschedueldـPredecessors():
             unscheduled_tasks = []
@@ -216,7 +221,7 @@ class fixed_arch_problem(ElementwiseProblem):
                 if task == tasks[0]:
                     prec[task] = 0
                 else:
-                    prec[task] = 0
+                    prec[task] != 0
                     for edge in weights.keys():
                         if edge[1] == task:
                             prec[task] += 1
@@ -229,14 +234,14 @@ class fixed_arch_problem(ElementwiseProblem):
         
         # NumـUnschedueldـPredecessors()
         
-        def condition_passed(task, scheduled_tasks):  # not tested yet and add condition 2
+        def condition_passed(task, scheduled_tasks):  # not tested yet and add condition 2 of article
             parents = return_parents(task)
             for parent in parents:
                 if parent not in scheduled_tasks:
                     return False
             return True
             
-        def find_est(task, pe, scheduled_tasks):
+        def find_est(task, pe, scheduled_tasks):#############repair################
             if not scheduled_tasks:
                 return 0
             else:
@@ -246,7 +251,7 @@ class fixed_arch_problem(ElementwiseProblem):
                     if parent in scheduled_tasks.keys(): #scheduled_tasks is a dict of scheduled tasks with (start_time, pe, end_time)
                         parent_pe = scheduled_tasks[parent][1]
                         print("parent", parent, "is scheduled on pe", parent_pe)
-                        parent_end_time = scheduled_tasks[parent][2] + exec_time[tasks.index(parent)][parent_pe]
+                        parent_end_time = scheduled_tasks[parent][1] + exec_time[tasks.index(parent)][parent_pe]
                         print("parent", parent, "ends at", parent_end_time)
                         if parent_pe != pe:     #parent is scheduled on a different pe
                             parent_end_time += communication_time
@@ -259,3 +264,52 @@ class fixed_arch_problem(ElementwiseProblem):
         # pe = "fpga"
         # scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)} 
         # find_est(task, pe, scheduled_tasks)
+        
+
+        def add_dummy_node(tasks, weights):
+            
+            # finding roots
+            
+            roots = []
+            allOfChilds = []
+            for task in tasks:
+                childs = return_children(task)
+                allOfChilds.extend(childs)
+            for task in tasks:
+                if task not in allOfChilds:
+                    roots.append(task)
+                    
+                    
+            # finding leaves        
+            leaves = []
+            allOfParents = []
+            for task in tasks:
+                parents = return_parents(task)
+                allOfParents.extend(parents)
+            for task in tasks:
+                if task not in allOfParents:
+                    leaves.append(task)
+                           
+            # adding main root
+            for root in roots:
+                weights["mainRoot", root] = 0
+            print("weights after adding main root:", weights)
+            
+            print("\n") 
+            
+            #adding final leaf
+            for leaf in leaves:
+                weights[leaf, "finalRoot"] = 0
+            print("weights after adding final leaf:", weights)
+            
+            print("\n")           
+            
+                    
+            print("leaves and roots are: ", leaves, roots)
+            return leaves, roots
+        
+        
+        tasks = ["a", "b", "c", "d", "x", "y"]
+        weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1, ("x", "y"):6}
+        add_dummy_node(tasks, weights)
+        
