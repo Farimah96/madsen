@@ -25,7 +25,7 @@ class fixed_arch_problem(ElementwiseProblem):
         super().__init__(elementwise,n_var=4, n_obj=3, **kwargs)
         
         global tasks
-        tasks = ["a", "b", "c", "d", "x", "y"]
+        # tasks = ["a", "b", "c", "d", "x", "y"]
         
         global exec_time
         exec_time = [
@@ -34,21 +34,20 @@ class fixed_arch_problem(ElementwiseProblem):
             [1.1, 1.0, 0.6],  # b
             [0.8, 1.2, 0.9],  # c
             [1.3, 0.9, 0.7],  # d
-            [0.8, 0.6, 1.0],  # x
-            [1.0, 0.7, 0.9]   # y 
+            [0, 0, 0],  # x
         ]
         
         global weights
-        weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1}
+        # weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1}
         
         global pe_types
         pe_types = ["fpga", "asic", "gpp"] #0 2 1 2        
         
         global fix_pe
-        fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0], "y" : pe_types[1]} #fix pe for each task  
+        fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0]} #fix pe for each task  
         
         global communication_time
-        communication_time = 5        
+        communication_time = 5  
         
         global deadlines
         deadlines = [30, 20, 40, 60]        
@@ -117,7 +116,13 @@ class fixed_arch_problem(ElementwiseProblem):
         # plt.show()
 
         #Computing a t-level
-        TopList = ["a", "x", "b", "y", "c", "d"]
+        
+        global TopList
+        TopList = ["a", "x", "b", "c", "d"]      
+        
+        global RevTopList
+        RevTopList = ["d", "c", "b", "x", "a"]
+
         def return_parents(node):
             parents = []
             for edge in weights.keys():
@@ -128,9 +133,9 @@ class fixed_arch_problem(ElementwiseProblem):
         
 
         def compute_t_level(TopList):
-            t_level = {"a":0, "b":0, "c":0, "d":0}
+            t_level = {"a":0, "b":0, "c":0, "d":0, "x":0}
             pe_types = ["fpga", "asic", "gpp"]
-            fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0], "y" : pe_types[1]}
+            fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0]}
             for node in TopList:
                 max = 0
                 parents = return_parents(node)
@@ -161,8 +166,6 @@ class fixed_arch_problem(ElementwiseProblem):
             
         #Computing a b-level
 
-        RevTopList = ["d", "c", "y", "b", "x", "a"]
-
         def return_children(node):
             children = []
             for edge in weights.keys():
@@ -173,9 +176,9 @@ class fixed_arch_problem(ElementwiseProblem):
         
 
         def compute_b_level(RevTopList):
-            b_level = {"a":0, "b":0, "c":0, "d":0}
+            b_level = {"a":0, "b":0, "c":0, "d":0, "x":0}
             pe_types = ["fpga", "asic", "gpp"]
-            fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0], "y" : pe_types[1]}
+            fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0]}
             for node in RevTopList:
                 max = 0
                 childrens = return_children(node)
@@ -213,58 +216,6 @@ class fixed_arch_problem(ElementwiseProblem):
         b_level = compute_b_level(RevTopList)
         Computing_priorities(tasks, t_level, b_level)
 
-        def NumـUnschedueldـPredecessors():
-            unscheduled_tasks = []
-            prec = {}
-            prec_task_name = {}
-            for task in tasks:
-                if task == tasks[0]:
-                    prec[task] = 0
-                else:
-                    prec[task] != 0
-                    for edge in weights.keys():
-                        if edge[1] == task:
-                            prec[task] += 1
-                            prec_task_name[task] = edge[0]                    
-                            
-                unscheduled_tasks.append(task)
-            # print("Number of unscheduled predecessors for each task:", prec)
-            # print("The predecessor task name for each task:", prec_task_name)
-            return prec, unscheduled_tasks
-        
-        # NumـUnschedueldـPredecessors()
-        
-        def condition_passed(task, scheduled_tasks):  # not tested yet and add condition 2 of article
-            parents = return_parents(task)
-            for parent in parents:
-                if parent not in scheduled_tasks:
-                    return False
-            return True
-            
-        def find_est(task, pe, scheduled_tasks):#############repair################
-            if not scheduled_tasks:
-                return 0
-            else:
-                max = 0
-                parents = return_parents(task)
-                for parent in parents:
-                    if parent in scheduled_tasks.keys(): #scheduled_tasks is a dict of scheduled tasks with (start_time, pe, end_time)
-                        parent_pe = scheduled_tasks[parent][1]
-                        print("parent", parent, "is scheduled on pe", parent_pe)
-                        parent_end_time = scheduled_tasks[parent][1] + exec_time[tasks.index(parent)][parent_pe]
-                        print("parent", parent, "ends at", parent_end_time)
-                        if parent_pe != pe:     #parent is scheduled on a different pe
-                            parent_end_time += communication_time
-                        if parent_end_time > max:
-                            max = parent_end_time
-                print("EST of task", task, "on pe", pe, "is", max)
-                return max
-            
-        # task = "c"
-        # pe = "fpga"
-        # scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)} 
-        # find_est(task, pe, scheduled_tasks)
-        
 
         def add_dummy_node(tasks, weights):
             
@@ -309,7 +260,73 @@ class fixed_arch_problem(ElementwiseProblem):
             return leaves, roots
         
         
-        tasks = ["a", "b", "c", "d", "x", "y"]
-        weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1, ("x", "y"):6}
+        # tasks = ["a", "b", "c", "d", "x", "y"]
+        # weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1, ("x", "y"):6}
         add_dummy_node(tasks, weights)
         
+
+###################################################################################################################
+###################################################################################################################
+
+
+
+
+            
+        def NumـUnschedueldـPredecessors(tasks, weights):
+                prec_dict = {t: 0 for t in tasks}
+                prec_task_names = {t: [] for t in tasks}
+                unscheduled_tasks = list(tasks)
+                
+                for edge in weights.keys():
+                    if edge[1] in prec_dict:  # to avoid dummy nodes
+                        prec_dict[edge[1]] += 1
+                        prec_task_names[edge[1]].append(edge[0])
+                    
+                # print("\n")
+                # print("prec_dict:", prec_dict)
+                # print("prec_task_names:", prec_task_names)
+                # print("unscheduled_tasks:", unscheduled_tasks)
+                # print("\n")
+                return unscheduled_tasks
+            
+        # NumـUnschedueldـPredecessors(tasks, weights)        
+            
+
+        
+        def find_est(task, pe, scheduled_tasks):#############repair################
+            if not scheduled_tasks:
+                return 0
+            else:
+                max = 0
+                parents = return_parents(task)
+                for parent in parents:
+                    if parent in scheduled_tasks.keys(): #scheduled_tasks is a dict of scheduled tasks with (start_time, pe, end_time)
+                        parent_pe = scheduled_tasks[parent][1]
+                        print("parent", parent, "is scheduled on pe", parent_pe)
+                        parent_end_time = scheduled_tasks[parent][1] + exec_time[tasks.index(parent)][parent_pe]
+                        print("parent", parent, "ends at", parent_end_time)
+                        if parent_pe != pe:     #parent is scheduled on a different pe
+                            parent_end_time += communication_time
+                        if parent_end_time > max:
+                            max = parent_end_time
+                print("EST of task", task, "on pe", pe, "is", max)
+                return max
+            
+        task = "c"
+        pe = "fpga"
+        scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)} 
+        find_est(task, pe, scheduled_tasks)
+            
+     
+            
+            
+            
+        # def condition_passed(task, scheduled_tasks):  # not tested yet and add condition 2 of article
+        #     parents = return_parents(task)
+        #     for parent in parents:
+        #         if parent not in scheduled_tasks:
+        #             return False
+        #     return True
+                
+
+            
