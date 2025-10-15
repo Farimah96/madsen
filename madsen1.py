@@ -37,7 +37,7 @@ class fixed_arch_problem(ElementwiseProblem):
             [0, 0, 0],  # x
         ]
         
-        global weights
+        # global weights
         # weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1}
         
         global pe_types
@@ -50,7 +50,10 @@ class fixed_arch_problem(ElementwiseProblem):
         communication_time = 5  
         
         global deadlines
-        deadlines = [30, 20, 40, 60]        
+        deadlines = [30, 20, 40, 60]
+        
+        global ready_list
+        ready_list = ["a", "x"]
         
         
         ########################### useless for now ###########################
@@ -147,10 +150,11 @@ class fixed_arch_problem(ElementwiseProblem):
                     # print(str(weights[(parent, node)]) + " is weight of edge", (parent, node))
                     # print(str(exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])]) + " is exec_time of parent", parent, "on", fix_pe[parent])
                     # print("\n")
-                    if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])] > max:
-                        max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])]
+                    if parent in tasks:  # to avoid dummy nodes -> look at 9 lines above
+                        if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])] > max:
+                            max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])]
                 
-                t_level[node] = max
+                    t_level[node] = max
 
             
             for node in TopList:
@@ -186,9 +190,10 @@ class fixed_arch_problem(ElementwiseProblem):
                     b_level[node] = 0
                     continue
                 for child in childrens:
-                    if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][pe_types.index(fix_pe[child])] > max:
-                        max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][pe_types.index(fix_pe[child])]
-                b_level[node] = max
+                    if child in tasks:  # to avoid dummy nodes -> look at 9 lines above
+                        if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][pe_types.index(fix_pe[child])] > max:
+                            max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][pe_types.index(fix_pe[child])]
+                    b_level[node] = max
                 
             for node in RevTopList:
                 print("b_level of node", node, "is", b_level[node])
@@ -269,40 +274,41 @@ class fixed_arch_problem(ElementwiseProblem):
 ###################################################################################################################
 
 
-
+        # weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1, ("x", "b"):3}
 
             
         def NumـUnschedueldـPredecessors(tasks, weights):
-                prec_dict = {t: 0 for t in tasks}
-                prec_task_names = {t: [] for t in tasks}
+                prec_dict = {task: 0 for task in tasks}
+                prec_task_names = {task: [] for task in tasks}
                 unscheduled_tasks = list(tasks)
                 
                 for edge in weights.keys():
-                    if edge[1] in prec_dict:  # to avoid dummy nodes
+                    if edge[1] in prec_dict:  # to avoid dummy nodes -> look at 9 lines above
                         prec_dict[edge[1]] += 1
                         prec_task_names[edge[1]].append(edge[0])
                     
-                # print("\n")
-                # print("prec_dict:", prec_dict)
-                # print("prec_task_names:", prec_task_names)
-                # print("unscheduled_tasks:", unscheduled_tasks)
-                # print("\n")
+                print("\n")
+                print("prec_dict:", prec_dict)
+                print("prec_task_names:", prec_task_names)
+                print("unscheduled_tasks:", unscheduled_tasks)
+                print("\n")
                 return unscheduled_tasks
             
-        # NumـUnschedueldـPredecessors(tasks, weights)        
+        NumـUnschedueldـPredecessors(tasks, weights)        
             
 
         
-        def find_est(task, pe, scheduled_tasks):#############repair################
+        def find_est(task, pe, scheduled_tasks):
             if not scheduled_tasks:
                 return 0
             else:
                 max = 0
                 parents = return_parents(task)
                 for parent in parents:
-                    if parent in scheduled_tasks.keys(): #scheduled_tasks is a dict of scheduled tasks with (start_time, pe, end_time)
-                        parent_pe = scheduled_tasks[parent][1]
+                    if parent in scheduled_tasks.keys():
+                        parent_pe = scheduled_tasks[parent][1] #exec time and which pe
                         print("parent", parent, "is scheduled on pe", parent_pe)
+                        # there is no communication time yet
                         parent_end_time = scheduled_tasks[parent][1] + exec_time[tasks.index(parent)][parent_pe]
                         print("parent", parent, "ends at", parent_end_time)
                         if parent_pe != pe:     #parent is scheduled on a different pe
@@ -316,17 +322,90 @@ class fixed_arch_problem(ElementwiseProblem):
         pe = "fpga"
         scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)} 
         find_est(task, pe, scheduled_tasks)
+
+
+
+        def condition_passed(task, scheduled_tasks):
             
+            # condition 1: all predecessors of task are scheduled
+            parents = return_parents(task)
+            for parent in parents:
+                if parent not in scheduled_tasks:
+                    return False
+            
+            print("\n")    
+            print("all predecessors of task", task, "are scheduled")
+            print("\n")
+            return True
+        
+            # condition 2: tasks with smallest est is scheduled before other tasks
+            # to be implemented
      
+        task = "c"
+        pe = "fpga"
+        scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)}
+        condition_passed(task, scheduled_tasks)    
+        ###############################################################################
+        ############################ Ignore ETC calculation and #######################
+        ############################ suppose that PEs are always ready ################
+        ############################ and also we dont have buffers!! ##################
+        ###############################################################################
+          
+        print("scheduling with static list scheduling algorithm:\n")  
+        # scheduling tasks based on this algorithm:
+        # 1: Calculate Priority List.
+        # 2: Initialize Num Unschedueld Predecessors[::]
+        # 3: Set Ty to the first task in Priority List satisfying sub condition 1) and 2)
+        # 4: repeat
+        # 5: Find earliest starting time for Ty
+        # 6: scheduled Ty
+        # 7: Update Num Unschedueld Predecessors[::]
+        # 8: Set next ready task in Priority List to Ty
+        # 9: Calculate ECT to Ty
+        # 10: until All tasks scheduled
             
+        def final_scheduler(tasks, weights, exec_time, communication_time):            
+            scheduled_tasks = {} # task : (start_time, pe)
+            unscheduled_tasks = NumـUnschedueldـPredecessors(tasks, weights)
+            print("initially unscheduled tasks are:", unscheduled_tasks)
+            t_level = compute_t_level(TopList)
+            b_level = compute_b_level(RevTopList)
+            priority_list = Computing_priorities(tasks, t_level, b_level)
+            print("initially priority list is:", priority_list)
             
-            
-        # def condition_passed(task, scheduled_tasks):  # not tested yet and add condition 2 of article
-        #     parents = return_parents(task)
-        #     for parent in parents:
-        #         if parent not in scheduled_tasks:
-        #             return False
-        #     return True
+            while unscheduled_tasks:
+                for task in priority_list.keys():
+                    if task in unscheduled_tasks: # and condition_passed(task, scheduled_tasks)
+                        y = task
+                        print("y is set to", y)
+                        break
+                
+                #find earliest starting time for y on it's fix pe 
+                pe = fix_pe[y]
+                pe_index = pe_types.index(pe)
+                est = find_est(y, pe_index, scheduled_tasks)
+                
+                # schedule y
+                scheduled_tasks[y] = (est, pe_index) # (start_time, pe)
+                print("task", y, "is scheduled at time", est, "on pe", pe)
+                
+                #update Num Unschedueld Predecessors[::]
+                unscheduled_tasks.remove(y)
+                print("unscheduled tasks after removing", y, "are:", unscheduled_tasks)
+                
+                print("scheduled tasks so far are:", scheduled_tasks)
+                
+                # calculate ECT to y
+                ect = est + exec_time[tasks.index(y)][pe_index]
+                print("ECT of task", y, "is", ect)
+                
+                print("\n")
+                
+            print("final scheduled tasks are:", scheduled_tasks)
+            return scheduled_tasks
                 
 
-            
+        pe_types = ["fpga", "asic", "gpp"] #0 2 1 
+        fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0]}              
+                        
+        final_scheduler(tasks, weights, exec_time, communication_time)
