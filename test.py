@@ -1,4 +1,6 @@
 from madsen1 import fixed_arch_problem
+from madsen1 import MySampling
+from unittest.mock import Mock
 
 static_list_scheduler = fixed_arch_problem.static_list_scheduler
 static_list_scheduler(["a", "b", "c", "d", "x"], {("a" , "b"):2, ("x", "b"):3, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1},
@@ -8,7 +10,15 @@ static_list_scheduler(["a", "b", "c", "d", "x"], {("a" , "b"):2, ("x", "b"):3, (
                         [0.8, 1.2, 0.9],
                         [1.3, 0.9, 0.7],
                         [0, 0, 0]
-                      ], communication_time=5
+                      ], communication_time=5, 
+                      pe_types={"fpga": 1, "asic": 1, "gpp": 1}
                       )
+
+# problem = Mock()
+# problem.n_var = 5
+# sampling = MySampling(num_pes=3, fixed_indices=[1, 3], fixed_values=[2, 0])
+# samples = sampling._do(problem=problem, n_samples=10)
+# print("Generated samples:\n", samples)
+
 
 
