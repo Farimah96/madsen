@@ -22,11 +22,11 @@ import networkx as nx
 
 class fixed_arch_problem(ElementwiseProblem):
     def __init__(self, elementwise=True, **kwargs):
-        super().__init__(elementwise,n_var=4, n_obj=3, **kwargs)
+        super().__init__(elementwise,n_var=5, n_obj=3, **kwargs)
 
         
     
-    def static_list_scheduler(tasks, weights, resource_graph, exec_time, communication_time):
+    def static_list_scheduler(tasks, weights, resource_graph, exec_time, communication_time, pe_types):
         
         
         def return_parents(node):
@@ -45,7 +45,7 @@ class fixed_arch_problem(ElementwiseProblem):
             return children
         
         
-        def add_dummy_node(tasks, weights, exec_time, resource_graph):
+        # def add_dummy_node(tasks, weights, exec_time, resource_graph):
             
             # finding roots
             
@@ -98,9 +98,7 @@ class fixed_arch_problem(ElementwiseProblem):
                     
             print("leaves and roots are: ", leaves, roots)
             return leaves, roots
-        
-        add_dummy_node(tasks, weights, exec_time, resource_graph)
-        
+                
         
         def topologyList(tasks):
             in_degree = {task: 0 for task in tasks}
@@ -143,19 +141,9 @@ class fixed_arch_problem(ElementwiseProblem):
             return rev_topo_order
         
         
-        
-        
-        TopList = topologyList(tasks)
-        print("Topological List:", TopList)      
-        
-        RevTopList = reverse_topologyList(tasks)
-        print("Reverse Topological List:", RevTopList)      
-        print("\n")
 
-        def compute_t_level(TopList):
-            t_level = {"a":0, "b":0, "c":0, "d":0, "x":0}
-            pe_types = ["fpga", "asic", "gpp"]
-            # fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0]}
+        def compute_t_level(TopList, pe_types):
+            t_level = {task : 0 for task in TopList}
             
             for node in TopList:
                 max = 0
@@ -164,13 +152,9 @@ class fixed_arch_problem(ElementwiseProblem):
                     t_level[node] = 0
                     continue
                 for parent in parents:
-                    # print(str(t_level[parent]) + " is t_level of parent", parent)
-                    # print(str(weights[(parent, node)]) + " is weight of edge", (parent, node))
-                    # print(str(exec_time[tasks.index(parent)][pe_types.index(fix_pe[parent])]) + " is exec_time of parent", parent, "on", fix_pe[parent])
-                    # print("\n")
                     if parent in tasks:  # to avoid dummy nodes -> look at 9 lines above
-                        if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(resource_graph[parent])] > max:
-                            max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(resource_graph[parent])]
+                        if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][list(pe_types.keys()).index(resource_graph[parent])] > max:
+                            max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][list(pe_types.keys()).index(resource_graph[parent])]
                 
                     t_level[node] = max
 
@@ -185,10 +169,8 @@ class fixed_arch_problem(ElementwiseProblem):
 
     
 
-        def compute_b_level(RevTopList):
-            b_level = {"a":0, "b":0, "c":0, "d":0, "x":0}
-            pe_types = ["fpga", "asic", "gpp"]
-            # fix_pe = {"a" : pe_types[0], "b" : pe_types[2], "c" :pe_types[1], "d" : pe_types[2], "x" : pe_types[0]}
+        def compute_b_level(RevTopList, pe_types):
+            b_level = {task : 0 for task in RevTopList}
             for node in RevTopList:
                 max = 0
                 childrens = return_children(node)
@@ -197,8 +179,8 @@ class fixed_arch_problem(ElementwiseProblem):
                     continue
                 for child in childrens:
                     if child in tasks:  # to avoid dummy nodes -> look at 9 lines above
-                        if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][pe_types.index(resource_graph[child])] > max:
-                            max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][pe_types.index(resource_graph[child])]
+                        if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][list(pe_types.keys()).index(resource_graph[child])] > max:
+                            max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][list(pe_types.keys()).index(resource_graph[child])]
                     b_level[node] = max
                 
             for node in RevTopList:
@@ -220,18 +202,8 @@ class fixed_arch_problem(ElementwiseProblem):
                 priority_list.update({node:priority})
                 print("priority of node", node, "is", b_level[node] + t_level[node])
             sorted_priority_list = dict(sorted(priority_list.items(), key=lambda item: item[1], reverse=True))
-            # print("The priority list is (from highest to lowest):")
-            # print(sorted_priority_list)
-            # print("\n")
             return sorted_priority_list
-                    
-        t_level = compute_t_level(TopList)
-        b_level = compute_b_level(RevTopList)
-        Computing_priorities(tasks, t_level, b_level)
 
-        
-
-        # weights = {("a" , "b"):2, ("a" , "c"):4, ("b" , "c"):5, ("b" , "d"):3, ("c" , "d"):1, ("x", "b"):3}
 
             
         def NumـUnschedueldـPredecessors(tasks, weights):
@@ -243,16 +215,9 @@ class fixed_arch_problem(ElementwiseProblem):
                     if edge[1] in prec_dict:  # to avoid dummy nodes -> look at 9 lines above
                         prec_dict[edge[1]] += 1
                         prec_task_names[edge[1]].append(edge[0])
-                    
-                # print("\n")
-                # print("prec_dict:", prec_dict)
-                # print("prec_task_names:", prec_task_names)
-                # print("unscheduled_tasks:", unscheduled_tasks)
-                # print("\n")
+
                 return unscheduled_tasks
-            
-        # NumـUnschedueldـPredecessors(tasks, weights)        
-            
+                        
 
         
         def find_est(task, pe, scheduled_tasks):
@@ -272,18 +237,13 @@ class fixed_arch_problem(ElementwiseProblem):
                             parent_end_time += communication_time
                         if parent_end_time > max:
                             max = parent_end_time
-                # print("EST of task", task, "on pe", pe, "is", max)
                 return max
             
-        # task = "c"
-        # pe = "fpga"
-        # scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)} 
-        # find_est(task, pe, scheduled_tasks)
 
 
 
 
-        def condition_passed(task, scheduled_tasks):
+        def condition_passed(task, scheduled_tasks, est):
             # get only real parents and ignore any dummy nodes that aren't in tasks
             parents = [p for p in return_parents(task) if p in tasks]
 
@@ -295,34 +255,27 @@ class fixed_arch_problem(ElementwiseProblem):
             for parent in parents:
                 if parent not in scheduled_tasks:
                     return False
-
-            # all parents scheduled
+            
+            pe = resource_graph[task]
+            running_on_pe = [
+                t for t, v in scheduled_tasks.items()
+                if list(pe_types.keys())[v[1]] == pe
+                and (v[0] + exec_time[tasks.index(t)][v[1]]) > est
+            ]
+            if len(running_on_pe) >= pe_types[pe]:
+                return False
+            
             return True
-
-     
-        task = "c"
-        pe = "fpga"
-        scheduled_tasks = {"b": (0, 1), "a": (1.0, 0)}
-        condition_passed(task, scheduled_tasks)    
+  
 
           
         print("scheduling with static list scheduling algorithm:\n")  
 
         
         
-        print("""
-              -------------------------------
-              |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
-              |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
-              |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
-              |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
-              -------------------------------
-              """)
-        
-        
-        def final_scheduler(tasks, weights, resource_graph, exec_time):            
+        def final_scheduler(tasks, weights, resource_graph, pe_types):            
             scheduled_tasks = {} # task : (start_time, pe)
-            add_dummy_node(tasks, weights, exec_time, resource_graph)
+            # add_dummy_node(tasks, weights, exec_time, resource_graph)
             unscheduled_tasks = NumـUnschedueldـPredecessors(tasks, weights)
             print("initially unscheduled tasks are:", unscheduled_tasks)
 
@@ -332,23 +285,26 @@ class fixed_arch_problem(ElementwiseProblem):
             print("Reverse Topological List:", RevTopList)     
             print("\n")
 
-            t_level = compute_t_level(TopList)
-            b_level = compute_b_level(RevTopList)
+            t_level = compute_t_level(topologyList(tasks), pe_types)
+            b_level = compute_b_level(reverse_topologyList(tasks), pe_types)
             priority_list = Computing_priorities(tasks, t_level, b_level)
             
             print("initially priority list is:", priority_list)
             
+            timeline = []  # list of (task, pe_type, start, end)
+            
             while unscheduled_tasks:
-                if unscheduled_tasks == ["mainRoot","finalRoot"]:
-                    break
+                # if unscheduled_tasks == ["mainRoot","finalRoot"]:
+                #     break
                 for task in priority_list.keys():
-                    if task in unscheduled_tasks: # and condition_passed(task, scheduled_tasks)
+                    if task in unscheduled_tasks and condition_passed(task, scheduled_tasks, find_est(task, list(pe_types.keys()).index(resource_graph[task]), scheduled_tasks)):
                         y = task
+                        print("\n")
                         print("y is set to", y)
                         break
                 
                 pe = resource_graph.get(y)
-                pe_index = pe_types.index(pe) if pe in pe_types else 0
+                pe_index = list(pe_types.keys()).index(pe) if pe in pe_types else 0
                 est = find_est(y, pe_index, scheduled_tasks)
                 
 
@@ -361,10 +317,44 @@ class fixed_arch_problem(ElementwiseProblem):
                 print("scheduled tasks so far are:", scheduled_tasks)             
                 print("\n")
                 
+                
+            ###########full time line
+                
+            print("Full timeline:")
+            for task, pe, s, e in sorted(timeline, key=lambda x: (s, e)):
+                print(f"{task} on {pe}: {s:.2f} -> {e:.2f}")
+                
+            ###########full time line    
+   
+                
             print("final scheduled tasks are:", scheduled_tasks)
             return scheduled_tasks
                 
-
-        pe_types = ["fpga", "asic", "gpp"]
                         
-        final_scheduler(tasks, weights, resource_graph, exec_time)
+        final_scheduler(tasks, weights, resource_graph, pe_types)
+        
+        
+        
+###############################################################################################################
+###                                           SAMPLING CLASS                                                ###
+###############################################################################################################      
+        
+
+
+class MySampling(Sampling):
+
+    def __init__(self, num_pes=3, fixed_indices=None, fixed_values=None): 
+        super().__init__()
+        self.num_pes = int(num_pes)
+        self.fixed_indices = fixed_indices if fixed_indices is not None else []
+        self.fixed_values = fixed_values if fixed_values is not None else []
+
+    def _do(self, problem, n_samples, **kwargs):
+        samples = np.random.randint(0, self.num_pes, size=(n_samples, problem.n_var))
+
+        if self.fixed_indices:
+            for idx, val in zip(self.fixed_indices, self.fixed_values):
+                samples[:, idx] = val
+
+        return samples
+    
