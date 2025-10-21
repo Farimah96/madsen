@@ -316,15 +316,7 @@ class fixed_arch_problem(ElementwiseProblem):
                 print("unscheduled tasks after removing", y, "are:", unscheduled_tasks)
                 print("scheduled tasks so far are:", scheduled_tasks)             
                 print("\n")
-                
-                
-            ###########full time line
-                
-            print("Full timeline:")
-            for task, pe, s, e in sorted(timeline, key=lambda x: (s, e)):
-                print(f"{task} on {pe}: {s:.2f} -> {e:.2f}")
-                
-            ###########full time line    
+                  
    
                 
             print("final scheduled tasks are:", scheduled_tasks)
