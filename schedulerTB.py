@@ -9,5 +9,5 @@ static_list_scheduler(["a", "b", "c", "d", "x"], {("a" , "b"):2, ("x", "b"):3, (
                         [1.3, 0.9, 0.7],
                         [0, 0, 0]
                       ], communication_time=5, 
-                      pe_types={"fpga": 1, "asic": 1, "gpp": 1}
+                      pe_types=["fpga", "gpp", "asic", "gpp"]
                       )

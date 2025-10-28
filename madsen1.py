@@ -18,6 +18,26 @@ import networkx as nx
 # Application Model
 """ 1 task graph for simple mode """
 
+class Representation(): # encode, evaluate, 
+    def __init__(self, tasks, weights, resource_graph, exec_time, communication_time, pe_types):
+        self.tasks = tasks
+        self.weights = weights
+        self.resource_graph = resource_graph
+        self.exec_time = exec_time
+        self.communication_time = communication_time
+        self.pe_types = pe_types
+        
+    def encode(chromosome, tasks): #return dictionary of task:pe
+        mapping = {}
+        for i, task in enumerate(tasks):
+            mapping[task] = chromosome[i]
+        print("mapping is:", mapping)
+        return mapping
+    
+    # def evaluate(chromosome): # time of task exec must be valid an
+        
+    # def repair(chromosome): # if chromosome is not valid -> repair
+
 
 
 class fixed_arch_problem(ElementwiseProblem):
@@ -153,8 +173,8 @@ class fixed_arch_problem(ElementwiseProblem):
                     continue
                 for parent in parents:
                     if parent in tasks:  # to avoid dummy nodes -> look at 9 lines above
-                        if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][list(pe_types.keys()).index(resource_graph[parent])] > max:
-                            max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][list(pe_types.keys()).index(resource_graph[parent])]
+                        if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(resource_graph[parent])] > max:
+                            max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(resource_graph[parent])]
                 
                     t_level[node] = max
 
@@ -179,8 +199,8 @@ class fixed_arch_problem(ElementwiseProblem):
                     continue
                 for child in childrens:
                     if child in tasks:  # to avoid dummy nodes -> look at 9 lines above
-                        if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][list(pe_types.keys()).index(resource_graph[child])] > max:
-                            max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][list(pe_types.keys()).index(resource_graph[child])]
+                        if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][pe_types.index(resource_graph[child])] > max:
+                            max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][pe_types.index(resource_graph[child])]
                     b_level[node] = max
                 
             for node in RevTopList:
@@ -259,10 +279,10 @@ class fixed_arch_problem(ElementwiseProblem):
             pe = resource_graph[task]
             running_on_pe = [
                 t for t, v in scheduled_tasks.items()
-                if list(pe_types.keys())[v[1]] == pe
+                if pe_types[v[1]] == pe
                 and (v[0] + exec_time[tasks.index(t)][v[1]]) > est
             ]
-            if len(running_on_pe) >= pe_types[pe]:
+            if len(running_on_pe) >= pe_types.index(pe):
                 return False
             
             return True
@@ -297,14 +317,14 @@ class fixed_arch_problem(ElementwiseProblem):
                 # if unscheduled_tasks == ["mainRoot","finalRoot"]:
                 #     break
                 for task in priority_list.keys():
-                    if task in unscheduled_tasks and condition_passed(task, scheduled_tasks, find_est(task, list(pe_types.keys()).index(resource_graph[task]), scheduled_tasks)):
+                    if task in unscheduled_tasks and condition_passed(task, scheduled_tasks, find_est(task, pe_types.index(resource_graph[task]), scheduled_tasks)):
                         y = task
                         print("\n")
                         print("y is set to", y)
                         break
                 
                 pe = resource_graph.get(y)
-                pe_index = list(pe_types.keys()).index(pe) if pe in pe_types else 0
+                pe_index = pe_types.index(pe) if pe in pe_types else 0
                 est = find_est(y, pe_index, scheduled_tasks)
                 
 
