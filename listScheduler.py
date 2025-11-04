@@ -14,12 +14,10 @@ class ListScheduler():
         
         resouces = ["GPP", "FPGA", "ASIC"]
         allocation = {"GPP": 2, "FPGA": 1, "ASIC": 1}
-        
-        priorityList = []
-        
-        for task in tasks:
-            if priority[task] == 0:
-                readyList.append(task)
+                
+        # for task in tasks:
+        #     if priority[task] == 0:
+        #         readyList.append(task)
         
         while len(tasks) > 0:
             for resource in resouces:
@@ -27,13 +25,25 @@ class ListScheduler():
             #   remove finished tasks from r
             #   check which new tasks are now ready for r
             #   choose the best ones by priority (p)
-            #   start them and set τ(v) = t    
-                
-                finishTimeOfTask = exec_time[resouces.index(resource)][tasks.index(task)] + scheduledTasks[task]
-                if finishTimeOfTask == t:
-                    tasks.remove(resource)
-                    print(f"Task {resource} finished at time {t}")
+            #   start them and set τ(v) = t
+            
+            # use map() for mapping each task in list of value of resource edges
+                mappedTasks = list(map(lambda x: x in rEdges[resource], tasks))
+                availableSlots = allocation[resource]
+                for i in range(len(mappedTasks)):
+                    if mappedTasks[i] and availableSlots > 0 and tasks[i] in readyList:
+                        taskToSchedule = tasks[i]
+                        print(f"At time {t}, scheduling task {taskToSchedule} on resource {resource}")
+                        scheduledTasks[taskToSchedule] = t
+                        availableSlots -= 1
+                        readyList.remove(taskToSchedule)
+            t += 1
+            # after scheduling, check for newly ready tasks
+            for task in tasks:
+                predecessors = [edge[0] for edge in tEdges.keys() if edge[1] == task]
+                if all(scheduledTasks[pred] > 0 for pred in predecessors) and task not in readyList and scheduledTasks[task] == 0:
+                    readyList.append(task)
                     
                     
-                    
-                    
+        print(scheduledTasks)
+                        
