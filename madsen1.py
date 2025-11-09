@@ -351,9 +351,20 @@ class fixed_arch_problem(ElementwiseProblem):
         final_scheduler(tasks, weights, resource_graph, pe_types)
         
         
+    def evaluate(x, weights, resource_graph, exec_time, communication_time, pe_types): # evaluate each individual based on schedule length, system cost
+        system_cost = {"fpga" : 100, "gpp": 50, "asic": 150}
+        for task in x.keys():
+            pe = x[task]
+            cost += system_cost[pe]
+            
+        
+        fixed_arch_problem.static_list_scheduler(x, weights, resource_graph, exec_time, communication_time, pe_types)        
+
+        return
+        
         
 ###############################################################################################################
-###                                           SAMPLING CLASS                                                ###
+###                                           SAMPLING & ...                                                ###
 ###############################################################################################################      
         
 
@@ -420,80 +431,80 @@ class MyMutation(Mutation):
             
             
             
-        def addPE(tasks, pe_types): #Add a new PE to a randomly selected bus, and assign 
-            #Ceiling of ( VT / VPE ) tasks randomly selected from the other PEs
-            random_bus = np.random.randint(0, len(buses))
-            buses[random_bus].append(1)  # Add a new PE to the selected bus
-            num_tasks_to_assign = int(np.ceil(len(tasks) / len(pe_types)))
-            tasks_to_assign = np.random.choice(tasks, size=num_tasks_to_assign, replace=False)
-            for task in tasks_to_assign:
-                # Assign the task to the new PE
-                pe_index = len(buses[random_bus]) - 1
-                #update the task assignment logic
-                ##################################
-                ##################################
-                ###################################
+        # def addPE(tasks, pe_types): #Add a new PE to a randomly selected bus, and assign 
+        #     #Ceiling of ( VT / VPE ) tasks randomly selected from the other PEs
+        #     random_bus = np.random.randint(0, len(buses))
+        #     buses[random_bus].append(1)  # Add a new PE to the selected bus
+        #     num_tasks_to_assign = int(np.ceil(len(tasks) / len(pe_types)))
+        #     tasks_to_assign = np.random.choice(tasks, size=num_tasks_to_assign, replace=False)
+        #     for task in tasks_to_assign:
+        #         # Assign the task to the new PE
+        #         pe_index = len(buses[random_bus]) - 1
+        #         #update the task assignment logic
+        #         ##################################
+        #         ##################################
+        #         ###################################
                 
         
             
-        def removePE(): #Remove a PE from a randomly selected bus, and distribute its tasks 
-            #among the remaining PEs
-            random_bus = np.random.randint(0, len(buses))
-            if len(buses[random_bus]) > 1:
-                pe_index_to_remove = np.random.randint(0, len(buses[random_bus]))
-                buses[random_bus].pop(pe_index_to_remove)
-                #logic to redistribute tasks assigned to the removed PE
-                ##################################
-                ##################################
-                ##################################
+        # def removePE(): #Remove a PE from a randomly selected bus, and distribute its tasks 
+        #     #among the remaining PEs
+        #     random_bus = np.random.randint(0, len(buses))
+        #     if len(buses[random_bus]) > 1:
+        #         pe_index_to_remove = np.random.randint(0, len(buses[random_bus]))
+        #         buses[random_bus].pop(pe_index_to_remove)
+        #         #logic to redistribute tasks assigned to the removed PE
+        #         ##################################
+        #         ##################################
+        #         ##################################
             
             
             
             
-        def ranReasTask(pe_types): #Move [1;4] randomly selected tasks from a PE to another 
-            #randomly chosen PE
-            seleced_pe_from = np.random.randint(0, len(pe_types))
-            selected_pe_to = np.random.randint(0, len(pe_types))
-            while selected_pe_to == seleced_pe_from:
-                selected_pe_to = np.random.randint(0, len(pe_types))
-            num_tasks_to_move = np.random.randint(1, 5)
-            # kogic to move tasks from seleced_pe_from to selected_pe_to
-            ################################################
-            ################################################
-            ################################################
+        # def ranReasTask(pe_types): #Move [1;4] randomly selected tasks from a PE to another 
+        #     #randomly chosen PE
+        #     seleced_pe_from = np.random.randint(0, len(pe_types))
+        #     selected_pe_to = np.random.randint(0, len(pe_types))
+        #     while selected_pe_to == seleced_pe_from:
+        #         selected_pe_to = np.random.randint(0, len(pe_types))
+        #     num_tasks_to_move = np.random.randint(1, 5)
+        #     # kogic to move tasks from seleced_pe_from to selected_pe_to
+        #     ################################################
+        #     ################################################
+        #     ################################################
             
             
             
             
-        def ranReasTask2(pe_types): #Move [1;4] randomly selected tasks from a PE to another 
-            #PE that is connected to the same bus
-            seleced_pe_from = np.random.randint(0, len(pe_types))
-            # Logic to find PEs connected to the same bus
-            connected_pes = []  # Placeholder for connected PEs
-            if connected_pes:
-                selected_pe_to = np.random.choice(connected_pes)
-                num_tasks_to_move = np.random.randint(1, 5)
-                # logic to move tasks from seleced_pe_from to selected_pe_to
-                ##################################
-                ##################################
-                ##################################
+        # def ranReasTask2(pe_types): #Move [1;4] randomly selected tasks from a PE to another 
+        #     #PE that is connected to the same bus
+        #     seleced_pe_from = np.random.randint(0, len(pe_types))
+        #     # Logic to find PEs connected to the same bus
+        #     connected_pes = []  # Placeholder for connected PEs
+        #     if connected_pes:
+        #         selected_pe_to = np.random.choice(connected_pes)
+        #         num_tasks_to_move = np.random.randint(1, 5)
+        #         # logic to move tasks from seleced_pe_from to selected_pe_to
+        #         ##################################
+        #         ##################################
+        #         ##################################
                 
 
 
-        def ranHeuReasTask(tasks, taskDeadlines, schedulesTasks): # taskDeadlines is a dictionary of task:deadline 
-            # and this function Identify the task graphs which have tasks missing their 
-            # deadlines, and select a task from these and move it to a PE with no deadline 
-            # violation
-            for task, deadline in taskDeadlines.items():
-                if task in schedulesTasks:
-                    scheduled_time = schedulesTasks[task][0] + exec_time[tasks.index(task)][schedulesTasks[task][1]]
-                    if scheduled_time > deadline:
-                        #logic to find a PE with no deadline violation
-                        # and move the task there
-                        ##################################
-                        ##################################
-                        ##################################
-                        return task
+        # def ranHeuReasTask(tasks, taskDeadlines, schedulesTasks): # taskDeadlines is a dictionary of task:deadline 
+        #     # and this function Identify the task graphs which have tasks missing their 
+        #     # deadlines, and select a task from these and move it to a PE with no deadline 
+        #     # violation
+        #     for task, deadline in taskDeadlines.items():
+        #         if task in schedulesTasks:
+        #             scheduled_time = schedulesTasks[task][0] + exec_time[tasks.index(task)][schedulesTasks[task][1]]
+        #             if scheduled_time > deadline:
+        #                 #logic to find a PE with no deadline violation
+        #                 # and move the task there
+        #                 ##################################
+        #                 ##################################
+        #                 ##################################
+        #                 return task
             
             
 class MyCrossover(Crossover):
