@@ -1,4 +1,4 @@
-from edit import fixed_arch_problem, MyMutation, MyCrossover, MySampling
+from madsen1 import fixed_arch_problem, MyMutation, MyCrossover, MySampling
 from pymoo.algorithms.moo.nsga2 import NSGA2
 from pymoo.optimize import minimize
 from pymoo.termination import get_termination
