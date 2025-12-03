@@ -6,14 +6,13 @@ from pymoo.core.mutation import Mutation
 from pymoo.core.problem import ElementwiseProblem
 from pymoo.core.sampling import Sampling
 
-
 from pymoo.util.ref_dirs import get_reference_directions
 
 
 # Application Model
 """ 1 task graph for simple mode """
 
-class Representation(): # encode, evaluate, 
+class Representation(): # encode, evaluate,
     def __init__(self, tasks, weights, resource_graph, exec_time, communication_time, pe_types):
         self.tasks = tasks
         self.weights = weights
@@ -22,127 +21,96 @@ class Representation(): # encode, evaluate,
         self.communication_time = communication_time
         self.pe_types = pe_types
 
+        # NOTE: representation keeps topology, but for fixed platform we will set these in problem
         # each row means a bus and each column means a PE
-        buses = [
-            [1,1,0,0,0]
-            [0,0,1,1,1]
+        # (kept here for reference; actual platform topology is defined in fixed_arch_problem)
+        self.buses = [
+            [1,1,0,0],
+            [0,0,1,1]
         ]
-        
-        # each row means a PE and each column means a bus
-        bridges = [1,2]
-    
-        
+
+        # each row means a bridge and each column means a bus (or representation of bridges)
+        self.bridges = [
+            [1, 2]   # example
+        ]
+
     def encode(chromosome, tasks): #return dictionary of task:pe
         mapping = {}
         for i, task in enumerate(tasks):
             mapping[task] = chromosome[i]
         print("mapping is:", mapping)
         return mapping
-    
+
 
 class fixed_arch_problem(ElementwiseProblem):
     def __init__(self, elementwise=True, **kwargs):
         super().__init__(elementwise,n_var=5, n_obj=2, **kwargs)
 
-        self.tasks = ["a", "b", "c", "d", "x"]
-        
-        self.resource_graph = {"a" : "fpga", "b" : "gpp", "c" : "asic", "d" : "gpp", "x" : "fpga"}
-        
+        # tasks
+        self.tasks = ["a", "b", "c", "d"]
+
+        # NOTE: for FIXED platform the resource_graph for mapping SHOULD map task -> PE_INDEX
+        # default initial mapping (example): here we keep a default type-map (not used for scheduling)
+        # but platform description below defines PE types and topology.
+        # We'll keep a convenience dict of PE types (index->type)
+        self.pe_types = ["fpga", "gpp", "asic"]
+        # actual instantiated PEs on the fixed platform (list of types by index)
+        self.pe_types_inst = ["fpga", "gpp", "asic", "gpp"]  # example: 4 PEs indices 0..3
+
+        # define platform topology (fixed). These belong to the platform description.
+        # buses: each row is a bus, each column corresponds to a PE index:
+        # buses[i][j] == 1 if PE j is connected to bus i
+        self.buses = [
+            [1,1,0,0],  # bus 0 connects PE0 and PE1
+            [0,0,1,1],  # bus 1 connects PE2 and PE3
+        ]
+        # bridges: each row is a bridge and indicates which buses it connects (example)
+        # here a bridge connecting bus0 and bus1
+        self.bridges = [
+            [1, 1]  # representation: connects bus0 and bus1 (example)
+        ]
+
+        # note: resource_graph (task -> pe index) will be given per individual (mapping)
+        # but keep a default sample mapping (not used by GA)
+        self.resource_graph = {"a" : 0, "b" : 1, "c" : 2, "d" : 1}
+
         self.weights = {
             ("a", "b"): 2,
-            ("x", "b"): 3,
             ("a", "c"): 4,
             ("b", "c"): 5,
             ("b", "d"): 3,
             ("c", "d"): 1
         }
-        
+
         self.exec_time = [
-            [0.9, 1.4, 0.7, 1.0],  # task a
+            [0.9, 1.4, 0.7, 1.0],  # task a  (exec times for PE indices 0..3)
             [1.1, 1.0, 0.6, 0.9],  # task b
             [0.8, 1.2, 0.9, 1.1],  # task c
             [1.3, 0.9, 0.7, 1.2],  # task d
-            [0, 0, 0, 0],          # task x
         ]
-        
-        self.pe_types = ["fpga", "gpp", "asic", "gpp"]
-        
+
+        # communication_time is not used directly as a constant in fixed-mode scheduler:
+        # we'll keep it as a fallback but ECT should be determined from bus availabilities/bandwidths.
         self.communication_time = 5
-    
-    def static_list_scheduler(self, tasks, weights, resource_graph, exec_time, communication_time, pe_types):
-        
-        
+
+    def static_list_scheduler(self, tasks, weights, resource_graph, exec_time, communication_time, pe_types, buses, bridges):
+
+        # helper: parents & children in application graph (weights keys)
         def return_parents(node):
             parents = []
             for edge in weights.keys():
                 if edge[1] == node:
                     parents.append(edge[0])
             return parents
-        
-        
+
         def return_children(node):
             children = []
             for edge in weights.keys():
                 if edge[0] == node:
                     children.append(edge[1])
             return children
-        
-        
-        # def add_dummy_node(tasks, weights, exec_time, resource_graph):
-            
-            # finding roots
-            
-            roots = []
-            allOfChilds = []
-            for task in tasks:
-                childs = return_children(task)
-                allOfChilds.extend(childs)
-            for task in tasks:
-                if task not in allOfChilds:
-                    roots.append(task)
-                    
-                    
-            # finding leaves        
-            leaves = []
-            allOfParents = []
-            for task in tasks:
-                parents = return_parents(task)
-                allOfParents.extend(parents)
-            for task in tasks:
-                if task not in allOfParents:
-                    leaves.append(task)
-                           
-            # adding main root
-            for root in roots:
-                weights["mainRoot", root] = 0
-            print("weights after adding main root:", weights)
-            
-            print("\n") 
-            
-            #adding final leaf
-            for leaf in leaves:
-                weights[leaf, "finalRoot"] = 0
-            print("weights after adding final leaf:", weights)
-            
-            # add new nodes to tasks
-            if "mainRoot" not in tasks:
-                tasks.append("mainRoot")
-                exec_time.append([0]*len(exec_time[0]))
-                resource_graph["mainRoot"] = "fpga"
-            
-            if "finalRoot" not in tasks:
-                tasks.append("finalRoot")
-                exec_time.append([0]*len(exec_time[0]))
-                resource_graph["finalRoot"] = "fpga"
-            
-            print("\n")
-            
-            print("tasks after adding dummy nodes:", tasks)           
-                    
-            print("leaves and roots are: ", leaves, roots)
-            return leaves, roots
-                
-        
+
+        # Topological list (Kahn)
         def topologyList(tasks):
             in_degree = {task: 0 for task in tasks}
             for edge in weights.keys():
@@ -160,10 +128,8 @@ class fixed_arch_problem(ElementwiseProblem):
                     if in_degree[child] == 0:
                         zero_in_degree.append(child)
 
-
             return topo_order
-        
-        
+
         def reverse_topologyList(tasks):
             out_degree = {task: 0 for task in tasks}
             for edge in weights.keys():
@@ -182,254 +148,240 @@ class fixed_arch_problem(ElementwiseProblem):
                         zero_out_degree.append(parent)
 
             return rev_topo_order
-        
-        
 
-        def compute_t_level(TopList, pe_types):
+        # compute t-level using mapping task->pe_index (resource_graph)
+        def compute_t_level(TopList):
+            # earliest start time of task considering parent completion + communication
             t_level = {task : 0 for task in TopList}
-            
+
             for node in TopList:
-                max = 0
                 parents = return_parents(node)
                 if not parents:
                     t_level[node] = 0
                     continue
+                maxv = 0
                 for parent in parents:
-                    if parent in tasks:  # to avoid dummy nodes -> look at 9 lines above
-                        if t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(resource_graph[parent])] > max:
-                            max = t_level[parent] + weights[(parent, node)] + exec_time[tasks.index(parent)][pe_types.index(resource_graph[parent])]
-                
-                    t_level[node] = max
+                    if parent in tasks:
+                        # parent's finish = t_level[parent] + exec_time(parent on its assigned PE) + communication(parent->node)
+                        parent_pe = resource_graph[parent]  # index
+                        parent_exec = exec_time[tasks.index(parent)][parent_pe]
+                        comm = weights.get((parent, node), 0)
+                        candidate = t_level[parent] + parent_exec + comm
+                        if candidate > maxv:
+                            maxv = candidate
+                t_level[node] = maxv
 
-            
-            # for node in TopList:
-                # print("t_level of node", node, "is", t_level[node])
-                    
-            # print(t_level)
-                    
-            # print("\n")
-            return t_level  # return dict 
+            return t_level
 
-    
-
-        def compute_b_level(RevTopList, pe_types):
+        # compute b-level using mapping task->pe_index (resource_graph)
+        def compute_b_level(RevTopList):
             b_level = {task : 0 for task in RevTopList}
             for node in RevTopList:
-                max = 0
                 childrens = return_children(node)
                 if not childrens:
                     b_level[node] = 0
                     continue
+                maxv = 0
                 for child in childrens:
-                    if child in tasks:  # to avoid dummy nodes -> look at 9 lines above
-                        if b_level[child] + weights[(node, child)]+ exec_time[tasks.index(child)][pe_types.index(resource_graph[child])] > max:
-                            max = b_level[child] + weights[(node, child)] + exec_time[tasks.index(child)][pe_types.index(resource_graph[child])]
-                    b_level[node] = max
-                
-            # for node in RevTopList:
-                # print("b_level of node", node, "is", b_level[node])
-                
-            b_level_rev = dict(reversed(list(b_level.items())))
-            # print(b_level_rev)
-            # print("\n")
-            return b_level_rev  # return dict
-            
+                    if child in tasks:
+                        child_pe = resource_graph[child]
+                        child_exec = exec_time[tasks.index(child)][child_pe]
+                        comm = weights.get((node, child), 0)
+                        candidate = b_level[child] + child_exec + comm
+                        if candidate > maxv:
+                            maxv = candidate
+                b_level[node] = maxv
 
-        
+            # keep same ordering as caller expects (reversed dict used earlier)
+            b_level_rev = dict(reversed(list(b_level.items())))
+            return b_level_rev
+
         def Computing_priorities(nodes, t_level, b_level):
             priority_list = {}
             for node in nodes:
-                if node == "mainRoot" or node == "finalRoot":
-                    continue
                 priority = b_level[node] + t_level[node]
                 priority_list.update({node:priority})
-                # print("priority of node", node, "is", b_level[node] + t_level[node])
             sorted_priority_list = dict(sorted(priority_list.items(), key=lambda item: item[1], reverse=True))
             return sorted_priority_list
 
-
-            
         def NumـUnschedueldـPredecessors(tasks, weights):
-                prec_dict = {task: 0 for task in tasks}
-                prec_task_names = {task: [] for task in tasks}
-                unscheduled_tasks = list(tasks)
-                
-                for edge in weights.keys():
-                    if edge[1] in prec_dict:  # to avoid dummy nodes -> look at 9 lines above
-                        prec_dict[edge[1]] += 1
-                        prec_task_names[edge[1]].append(edge[0])
+            prec_dict = {task: 0 for task in tasks}
+            prec_task_names = {task: [] for task in tasks}
+            unscheduled_tasks = list(tasks)
 
-                return unscheduled_tasks
-                        
+            for edge in weights.keys():
+                if edge[1] in prec_dict:  # only real tasks
+                    prec_dict[edge[1]] += 1
+                    prec_task_names[edge[1]].append(edge[0])
 
-        #find earliest start time just based on execution time of parents and 
-        #ignore communication time
+            return unscheduled_tasks
+
+        # find earliest start time considering parents' finish times AND PE availability
         def find_est(task, pe, scheduled_tasks):
+            # pe is PE index (int)
             if not scheduled_tasks:
                 return 0
             else:
-                max = 0
+                maxv = 0
                 parents = return_parents(task)
+                # parent's finish times + communication
                 for parent in parents:
                     if parent in scheduled_tasks.keys():
-                        parent_pe = scheduled_tasks[parent][1] #exec time and which pe
-                        parent_end_time = scheduled_tasks[parent][0] + exec_time[tasks.index(parent)][parent_pe]  # 1 -> 0
-                        if parent_end_time > max:
-                            max = parent_end_time
-                        else:
-                            continue
-                return max
-                
+                        parent_pe = scheduled_tasks[parent][1]  # parent assigned PE index
+                        parent_end_time = scheduled_tasks[parent][0] + exec_time[tasks.index(parent)][parent_pe]
+                        # add communication if parent_pe != pe
+                        comm_t = 0
+                        if parent_pe != pe:
+                            comm_t = weights.get((parent, task), 0)
+                        candidate = parent_end_time + comm_t
+                        if candidate > maxv:
+                            maxv = candidate
+                # also consider PE availability: if another task is running on 'pe', it may block
+                for tname, info in scheduled_tasks.items():
+                    assigned_pe = info[1]
+                    if assigned_pe == pe:
+                        t_end = info[0] + exec_time[tasks.index(tname)][assigned_pe]
+                        if t_end > maxv:
+                            maxv = t_end
+                return maxv
 
+        # condition_passed: parents scheduled AND PE is available at EST (we check conservatively)
         def condition_passed(task, scheduled_tasks, est):
-            # get only real parents and ignore any dummy nodes that aren't in tasks
             parents = [p for p in return_parents(task) if p in tasks]
-
-            # if task has no real parents -> it's a root
             if not parents:
+                # root ready
                 return True
 
-            # otherwise, it's ready only if all parents have been scheduled
+            # all parents must be scheduled
             for parent in parents:
                 if parent not in scheduled_tasks:
                     return False
-            
-            # pe = resource_graph[task]
-            # running_on_pe = [
-            #     t for t, v in scheduled_tasks.items()
-            #     if pe_types[v[1]] == pe
-            #     and (v[0] + exec_time[tasks.index(t)][v[1]]) > est
-            # ]
-            # if len(running_on_pe) >= pe_types.index(pe):
-            #     return False
-            
+
+            # check PE availability: no running task on the same PE that overlaps est
+            task_pe = resource_graph[task]
+            for tname, info in scheduled_tasks.items():
+                assigned_pe = info[1]
+                if assigned_pe == task_pe:
+                    t_end = info[0] + exec_time[tasks.index(tname)][assigned_pe]
+                    if t_end > est:
+                        return False
+
             return True
-  
 
-          
-        print("scheduling with static list scheduling algorithm:\n")  
 
-        
-        
-        def final_scheduler(tasks, weights, resource_graph, pe_types):            
-            scheduled_tasks = {} # task : (start_time, pe)
-            # add_dummy_node(tasks, weights, exec_time, resource_graph)
+        print("scheduling with static list scheduling algorithm:\n")
+
+
+        def final_scheduler(tasks, weights, resource_graph, pe_types, buses, bridges):
+            scheduled_tasks = {} # task : (start_time, pe_index)
             unscheduled_tasks = NumـUnschedueldـPredecessors(tasks, weights)
-            # print("initially unscheduled tasks are:", unscheduled_tasks)
 
             TopList = topologyList(tasks)
-            # print("Topological List:", TopList)  
             RevTopList = reverse_topologyList(tasks)
-            # print("Reverse Topological List:", RevTopList)     
-            # print("\n")
 
-            t_level = compute_t_level(topologyList(tasks), pe_types)
-            b_level = compute_b_level(reverse_topologyList(tasks), pe_types)
+            t_level = compute_t_level(TopList)
+            b_level = compute_b_level(RevTopList)
             priority_list = Computing_priorities(tasks, t_level, b_level)
-            
-            # print("initially priority list is:", priority_list)
-            
+
             timeline = []  # list of (task, pe_type, start, end)
-            
+
             while unscheduled_tasks:
-                # if unscheduled_tasks == ["mainRoot","finalRoot"]:
-                #     break
+                # choose highest priority ready task
+                y = None
                 for task in priority_list.keys():
-                    if task in unscheduled_tasks and condition_passed(task, scheduled_tasks, find_est(task, pe_types.index(resource_graph[task]), scheduled_tasks)):
-                        y = task
-                        # print("\n")
-                        # print("y is set to", y)
-                        break
-                
-                pe = resource_graph.get(y)
-                pe_index = pe_types.index(pe) if pe in pe_types else 0
+                    if task in unscheduled_tasks:
+                        est_candidate = find_est(task, resource_graph[task], scheduled_tasks)
+                        if condition_passed(task, scheduled_tasks, est_candidate):
+                            y = task
+                            break
+
+                if y is None:
+                    # no ready task found (should not happen in a DAG unless bug) -> break to avoid infinite loop
+                    break
+
+                pe_index = resource_graph.get(y)
                 est = find_est(y, pe_index, scheduled_tasks)
-                
 
                 scheduled_tasks[y] = (est, pe_index) # (start_time, pe)
-                # print("task", y, "is scheduled at time", est, "on pe", pe)
-
                 unscheduled_tasks.remove(y)
-                
-                # print("unscheduled tasks after removing", y, "are:", unscheduled_tasks)
-                # print("scheduled tasks so far are:", scheduled_tasks)             
-                # print("\n")
-                  
-   
-                
+
             print("final scheduled tasks are:", scheduled_tasks)
-            
-            #for each task print details of scheduling including start time and executing time of 
-            # pe and communication time from weights dictionary
+
+            # print scheduling details
             for task, (start, pe) in scheduled_tasks.items():
                 exec_t = exec_time[tasks.index(task)][pe]
-                print(f"Task {task} is scheduled on PE {pe_types[pe]} starting at time {start} with execution time {exec_t}")
+                pe_type = pe_types[pe] if pe < len(pe_types) else f"PE{pe}"
+                print(f"Task {task} is scheduled on PE {pe} (type {pe_type}) starting at time {start} with execution time {exec_t}")
                 parents = return_parents(task)
                 for parent in parents:
                     if parent in scheduled_tasks:
                         comm_t = weights.get((parent, task), 0)
                         if comm_t > 0:
                             print(f"  Communication time from parent task {parent} to task {task} is {comm_t}")
-                
+
             return scheduled_tasks
-                
-                        
-        return final_scheduler(tasks, weights, resource_graph, pe_types)
-    
-        
+
+
+        # call final scheduler with topology
+        return final_scheduler(tasks, weights, resource_graph, pe_types, buses, bridges)
+
     def _evaluate(self, x, out, *args, **kwargs):
-        mapping = {self.tasks[i]: self.pe_types[int(x[i] % len(self.pe_types))] for i in range(len(self.tasks))}
-        sch_dict = self.static_list_scheduler(tasks=self.tasks,
-                                      weights=self.weights,
-                                      resource_graph=mapping,
-                                      exec_time=self.exec_time,
-                                      communication_time=self.communication_time,
-                                      pe_types=self.pe_types)
-        
-        
+        # IMPORTANT: for FIXED platform mapping must be task -> PE index (integer)
+        mapping = { self.tasks[i] : int(x[i]) for i in range(len(self.tasks)) }
+
+        sch_dict = self.static_list_scheduler(
+            tasks=self.tasks,
+            weights=self.weights,
+            resource_graph=mapping,
+            exec_time=self.exec_time,
+            communication_time=self.communication_time,
+            pe_types=self.pe_types_inst,   # use inst list for PE index -> type
+            buses=self.buses,
+            bridges=self.bridges
+        )
+
+        # cost: sum of cost per PE type used by tasks
         system_cost = {"fpga": 100, "gpp": 50, "asic": 150}
-        cost = sum(system_cost[mapping[t]] for t in mapping)
-        
-        
+        cost = sum(system_cost[pe] for pe in self.pe_types_inst)
+
+        print(cost)
+
         finish_time = 0
         for task_name, info in sch_dict.items():
-            if info[0] + self.exec_time[self.tasks.index(task_name)][info[1]] > finish_time:
-                finish_time = info[0] + self.exec_time[self.tasks.index(task_name)][info[1]]
-                
+            start = info[0]
+            pe_index = info[1]
+            task_exec = self.exec_time[self.tasks.index(task_name)][pe_index]
+            if start + task_exec > finish_time:
+                finish_time = start + task_exec
+
         print("Makespan is:", finish_time)
-        print("Cost is:", cost)
+        print("cost is:", cost)
         out["F"] = np.array([finish_time, cost])
-        
-        
-        
-        
-        
-        
+
+
+
+
 ###############################################################################################################
 ###                                           SAMPLING & ...                                                ###
-###############################################################################################################      
-        
+###############################################################################################################
 
 
 class MySampling(Sampling):
 
-    def __init__(self, num_pes=4, fixed_indices=None, fixed_values=None): 
+    def __init__(self, num_pes=4, fixed_indices=None, fixed_values=None):
         super().__init__()
         self.num_pes = int(num_pes)
         self.fixed_indices = fixed_indices if fixed_indices is not None else []
         self.fixed_values = fixed_values if fixed_values is not None else []
-    
-    def valid_sample(sample, resource_graph, pe_types): # sample is a list of pe indices
+
+    def valid_sample(self, sample, resource_graph, pe_types): # sample is a list of pe indices
         for pe in sample:
             if pe < 0 or pe >= len(pe_types):
                 return False
-            if pe_types[pe] != resource_graph[pe]:
-                return False
-            if sample.count(pe) > pe_types.count(resource_graph[pe]):
-                return False
-        
-        
-    
+            # resource_graph here should be mapping task->pe_index; we cannot check types here reliably
+            # keep minimal checks only
+        return True
+
     def _do(self, problem, n_samples, **kwargs):
         samples = []
         while len(samples) < n_samples:
@@ -444,132 +396,35 @@ class MySampling(Sampling):
             samples.append(sample)
             print(sample)
         return np.array(samples)
-    
+
 
 class MyMutation(Mutation):
     def __init__(self, mutation_rate=0.4, num_pes=4):
         super().__init__()
         self.mutation_rate = mutation_rate
         self.num_pes = int(num_pes)
-        
-                # each row means a bus and each column means a PE
-        buses = [
-            [1,1,0,0,0],
-            [0,0,1,1,1]
-        ]
-        
-        # each row means a PE and each column means a bus
-        bridges = [1,2]
+
+    # mutation: change assigned PE index for some tasks (fixed-platform style)
+    def _do(self, problem, X, **kwargs):
+        Y = np.full_like(X, np.nan)
+        for i in range(X.shape[0]):
+            individual = X[i].copy()
+            for j in range(len(individual)):
+                if np.random.rand() < self.mutation_rate:
+                    new_pe = np.random.randint(0, self.num_pes)
+                    individual[j] = new_pe
+            Y[i] = individual
+            print("individual after mutation: ", Y[i])
+        return Y
 
 
-        exec_time = [
-            [0.9, 1.4, 0.7, 1.0],  # task a
-            [1.1, 1.0, 0.6, 0.9],  # task b
-            [0.8, 1.2, 0.9, 1.1],  # task c
-            [1.3, 0.9, 0.7, 1.2],  # task d
-            [0, 0, 0, 0],          # task x
-        ]
-
-        #Randomly select an existing PE and change its type,and randomly select a bus and change its type
-        def _do(self, problem, X, **kwargs):
-            Y = np.full_like(X, np.nan)
-            for i in range(X.shape[0]):
-                individual = X[i].copy()
-                for j in range(len(individual)):
-                    if np.random.rand() < self.mutation_rate:
-                        new_pe = np.random.randint(0, self.num_pes)
-                        individual[j] = new_pe
-                Y[i] = individual
-                print("individual after mutation: ", Y)
-            return Y
-            
-            
-            
-        # def addPE(tasks, pe_types): #Add a new PE to a randomly selected bus, and assign 
-        #     #Ceiling of ( VT / VPE ) tasks randomly selected from the other PEs
-        #     random_bus = np.random.randint(0, len(buses))
-        #     buses[random_bus].append(1)  # Add a new PE to the selected bus
-        #     num_tasks_to_assign = int(np.ceil(len(tasks) / len(pe_types)))
-        #     tasks_to_assign = np.random.choice(tasks, size=num_tasks_to_assign, replace=False)
-        #     for task in tasks_to_assign:
-        #         # Assign the task to the new PE
-        #         pe_index = len(buses[random_bus]) - 1
-        #         #update the task assignment logic
-        #         ##################################
-        #         ##################################
-        #         ###################################
-                
-        
-            
-        # def removePE(): #Remove a PE from a randomly selected bus, and distribute its tasks 
-        #     #among the remaining PEs
-        #     random_bus = np.random.randint(0, len(buses))
-        #     if len(buses[random_bus]) > 1:
-        #         pe_index_to_remove = np.random.randint(0, len(buses[random_bus]))
-        #         buses[random_bus].pop(pe_index_to_remove)
-        #         #logic to redistribute tasks assigned to the removed PE
-        #         ##################################
-        #         ##################################
-        #         ##################################
-            
-            
-            
-            
-        # def ranReasTask(pe_types): #Move [1;4] randomly selected tasks from a PE to another 
-        #     #randomly chosen PE
-        #     seleced_pe_from = np.random.randint(0, len(pe_types))
-        #     selected_pe_to = np.random.randint(0, len(pe_types))
-        #     while selected_pe_to == seleced_pe_from:
-        #         selected_pe_to = np.random.randint(0, len(pe_types))
-        #     num_tasks_to_move = np.random.randint(1, 5)
-        #     # kogic to move tasks from seleced_pe_from to selected_pe_to
-        #     ################################################
-        #     ################################################
-        #     ################################################
-            
-            
-            
-            
-        # def ranReasTask2(pe_types): #Move [1;4] randomly selected tasks from a PE to another 
-        #     #PE that is connected to the same bus
-        #     seleced_pe_from = np.random.randint(0, len(pe_types))
-        #     # Logic to find PEs connected to the same bus
-        #     connected_pes = []  # Placeholder for connected PEs
-        #     if connected_pes:
-        #         selected_pe_to = np.random.choice(connected_pes)
-        #         num_tasks_to_move = np.random.randint(1, 5)
-        #         # logic to move tasks from seleced_pe_from to selected_pe_to
-        #         ##################################
-        #         ##################################
-        #         ##################################
-                
-
-
-        # def ranHeuReasTask(tasks, taskDeadlines, schedulesTasks): # taskDeadlines is a dictionary of task:deadline 
-        #     # and this function Identify the task graphs which have tasks missing their 
-        #     # deadlines, and select a task from these and move it to a PE with no deadline 
-        #     # violation
-        #     for task, deadline in taskDeadlines.items():
-        #         if task in schedulesTasks:
-        #             scheduled_time = schedulesTasks[task][0] + exec_time[tasks.index(task)][schedulesTasks[task][1]]
-        #             if scheduled_time > deadline:
-        #                 #logic to find a PE with no deadline violation
-        #                 # and move the task there
-        #                 ##################################
-        #                 ##################################
-        #                 ##################################
-        #                 return task
-            
-            
 class MyCrossover(Crossover):
-    #Crossover on PE types and tasks mapped to PE. This operator
-    #copies the mapping and PE-type from one individual to a PE in
-    #another individual
+    # Crossover on mapping array (task -> PE index)
     def __init__(self, num_pes=4, prob=0.4):
         super().__init__(2, 2)
         self.num_pes = int(num_pes)
         self.prob = prob
-        
+
     def _do(self, problem, X, **kwargs):
         n_offsprings, n_matings, n_var = X.shape
         Y = np.full_like(X, np.nan)
@@ -589,10 +444,8 @@ class MyCrossover(Crossover):
             else:
                 Y[0, i] = parent1
                 Y[1, i] = parent2
-            print("individual after crossover: ", Y)
+            print("individual after crossover: ", Y[:, i, :])
         return Y
-    
-
 
 
 
@@ -616,26 +469,24 @@ def printGraph(tasks, weights, exec_time, resource_graph):
 
     plt.title("Task Graph")
     plt.show()
-    
-    
-    
-printGraph(tasks = ["a", "b", "c", "d", "x"],
-        
-resource_graph = {"a" : "fpga", "b" : "gpp", "c" : "asic", "d" : "gpp", "x" : "fpga"},
-        
+
+
+# NOTE: This printGraph call is for displaying the application graph only (uses a literal resource_graph mapping to types)
+printGraph(tasks = ["a", "b", "c", "d"],
+
+resource_graph = {"a" : "fpga", "b" : "gpp", "c" : "asic", "d" : "gpp"},
+
 weights = {
             ("a", "b"): 2,
-            ("x", "b"): 3,
             ("a", "c"): 4,
             ("b", "c"): 5,
             ("b", "d"): 3,
             ("c", "d"): 1
         },
-        
+
 exec_time = [
             [0.9, 1.4, 0.7, 1.0],  # task a
             [1.1, 1.0, 0.6, 0.9],  # task b
             [0.8, 1.2, 0.9, 1.1],  # task c
             [1.3, 0.9, 0.7, 1.2],  # task d
-            [0, 0, 0, 0],          # task x
         ])
