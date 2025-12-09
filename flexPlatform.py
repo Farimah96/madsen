@@ -437,7 +437,7 @@ class FlexibleArchProblem(ElementwiseProblem):
 ################################################################################
 class FlexibleSampling(Sampling):
     """
-    Sampling for flexible chromosomes.
+    Sampling for flexible chromosomes
     - allocation: random integers in [1..max_alloc]
     - binding: random integers in [0..P-1] where P = sum(allocation)
     """
