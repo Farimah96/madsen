@@ -615,13 +615,235 @@ class FlexibleMutation(Mutation):
 ################################################################################
 # Optional: test bench showing how to run NSGA2 (commented for import safety)  #
 ################################################################################
+# if __name__ == "__main__":
+#     # Quick test run with NSGA2 (requires pymoo installed)
+#     from pymoo.algorithms.moo.nsga2 import NSGA2
+#     from pymoo.optimize import minimize
+#     from pymoo.termination import get_termination
+#     from pymoo.core.callback import Callback
+#     import matplotlib.pyplot as plt
+
+#     problem = FlexibleArchProblem()
+
+#     sampling = FlexibleSampling(n_types=problem.n_types, n_tasks=problem.n_tasks, max_alloc=3)
+#     crossover = FlexibleCrossover(n_types=problem.n_types, n_tasks=problem.n_tasks, prob=0.9)
+#     mutation = FlexibleMutation(n_types=problem.n_types, n_tasks=problem.n_tasks, mutation_rate=0.3, max_alloc=3)
+
+#     algorithm = NSGA2(pop_size=50,
+#                       sampling=sampling,
+#                       crossover=crossover,
+#                       mutation=mutation,
+#                       eliminate_duplicates=True)
+
+#     # plotting callback
+#     plt.ion()
+#     fig, ax = plt.subplots()
+    
+#     class PlotCallback(Callback):
+#         def __init__(self, ax):
+#             super().__init__()
+#             self.ax = ax
+
+#         def notify(self, algorithm):
+#             pop = algorithm.pop
+#             X = pop.get("X")
+#             F = pop.get("F")
+
+#             if X is None or F is None or len(X) == 0:
+#                 return
+
+#             # ===== PRINT POPULATION =====
+#             print(f"\n===== Generation {algorithm.n_gen} =====")
+#             for i in range(len(X)):
+#                 print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
+
+#             # ===== PLOT PARETO FRONT =====
+#             self.ax.clear()
+#             self.ax.scatter(F[:, 0], F[:, 1])
+#             self.ax.set_xlabel("Makespan")
+#             self.ax.set_ylabel("Cost")
+#             self.ax.set_title(f"Generation {algorithm.n_gen}")
+#             plt.pause(0.01)
+
+    
+#     termination = get_termination("n_gen", 60)
+
+#     res = minimize(problem,
+#                    algorithm,
+#                    termination,
+#                    seed=1,
+#                    callback=PlotCallback(ax),
+#                    verbose=True)
+
+#     plt.ioff()
+#     plt.show()
+
+#     print("Final Pareto front (makespan, cost):")
+#     print(res.F)
+#     print("Sample solution (allocation | binding):")
+#     print(res.X[0])
+
+##############################################################3
+##############################################################
+################################################################
+
+
+# from pymoo.algorithms.moo.nsga2 import NSGA2
+# from pymoo.optimize import minimize
+# from pymoo.termination import get_termination
+# from pymoo.core.callback import Callback
+# import matplotlib.pyplot as plt
+# import pandas as pd
+# from pymoo.core.callback import Callback
+
+# class PlotAndLogCallback(Callback):
+
+#     def __init__(self, ax):
+#         super().__init__()
+#         self.ax = ax
+#         self.log = []
+
+#     def notify(self, algorithm):
+#         pop = algorithm.pop
+#         X = pop.get("X")
+#         F = pop.get("F")
+
+    
+#         if X is None or F is None or len(X) == 0:
+#             return
+
+#         # ===== PRINT POPULATION =====
+#         print(f"\n===== Generation {algorithm.n_gen} =====")
+#         for i in range(len(X)):
+#             print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
+
+#         # ===== SAVE LOG ROW (like pymoo verbose table) =====
+#         self.log.append({
+#             "gen": algorithm.n_gen,
+#             "n_eval": algorithm.evaluator.n_eval,
+#             "n_nds": len(F),
+#             "eps": getattr(algorithm.termination, "eps", None),
+#             "indicator": getattr(algorithm.termination, "indicator", "f")
+#         })
+
+#         # ===== PLOT PARETO FRONT =====
+#         self.ax.clear()
+#         self.ax.scatter(F[:, 0], F[:, 1])
+#         self.ax.set_xlabel("Makespan")
+#         self.ax.set_ylabel("Cost")
+#         self.ax.set_title(f"Generation {algorithm.n_gen}")
+#         plt.pause(0.01)
+
+#     def get_table(self):
+#         return pd.DataFrame(self.log)
+
+
+# plt.ion()
+# fig, ax = plt.subplots()
+
+# callback = PlotAndLogCallback(ax)
+
+# problem = FlexibleArchProblem()
+
+# sampling = FlexibleSampling(n_types=problem.n_types, n_tasks=problem.n_tasks, max_alloc=3)
+# crossover = FlexibleCrossover(n_types=problem.n_types, n_tasks=problem.n_tasks, prob=0.9)
+# mutation = FlexibleMutation(n_types=problem.n_types, n_tasks=problem.n_tasks, mutation_rate=0.3, max_alloc=3)
+
+# algorithm = NSGA2(pop_size=50,
+#                 sampling=sampling,
+#                 crossover=crossover,
+#                 mutation=mutation,
+#                 eliminate_duplicates=True)
+
+# termination = get_termination("n_gen", 100)
+
+# res = minimize(
+#     problem,
+#     algorithm,
+#     termination,
+#     seed=1,
+#     callback=callback,
+#     verbose=True
+# )
+
+# plt.ioff()
+# plt.show()
+
+# print("\n===== GENERATION SUMMARY TABLE =====")
+# df = callback.get_table()
+# print(df)
+
+
+##############################################################
+##############################################################
+##############################################################
+
+
+from pymoo.algorithms.moo.nsga2 import NSGA2
+from pymoo.optimize import minimize
+from pymoo.termination import get_termination
+from pymoo.core.callback import Callback
+from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
+from pymoo.indicators.hv import HV
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# ================= CALLBACK =================
+class PlotAndLogCallback(Callback):
+    def __init__(self, ax, ref_point=None):
+        super().__init__()
+        self.ax = ax
+        self.log = []
+        self.ref_point = ref_point
+
+    def notify(self, algorithm):
+        pop = algorithm.pop
+        X = pop.get("X")
+        F = pop.get("F")
+
+        if X is None or F is None or len(X) == 0:
+            return
+
+        # -------- PRINT POPULATION --------
+        print(f"\n===== Generation {algorithm.n_gen} =====")
+        for i in range(len(X)):
+            print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
+
+        # -------- COMPUTE NON-DOMINATED COUNT --------
+        nds_idx = NonDominatedSorting().do(F, only_non_dominated_front=True)
+        n_nds = len(nds_idx)
+
+        # -------- COMPUTE HYPERVOLUME IF ref_point GIVEN --------
+        hv_value = None
+        if self.ref_point is not None:
+            hv_calc = HV(ref_point=self.ref_point)
+            hv_value = hv_calc(F)
+
+        # -------- SAVE LOG ROW --------
+        self.log.append({
+            "gen": algorithm.n_gen,
+            "n_eval": algorithm.evaluator.n_eval,
+            "n_nds": n_nds,
+            "eps": getattr(algorithm.termination, "eps", None),
+            "indicator": hv_value if hv_value is not None else "f"
+        })
+
+        # -------- PLOT PARETO FRONT --------
+        self.ax.clear()
+        self.ax.scatter(F[:, 0], F[:, 1])
+        self.ax.set_xlabel("Makespan")
+        self.ax.set_ylabel("Cost")
+        self.ax.set_title(f"Generation {algorithm.n_gen}")
+        plt.pause(0.01)
+
+    def get_table(self):
+        return pd.DataFrame(self.log)
+
+
+# ===================== MAIN =====================
 if __name__ == "__main__":
-    # Quick test run with NSGA2 (requires pymoo installed)
-    from pymoo.algorithms.moo.nsga2 import NSGA2
-    from pymoo.optimize import minimize
-    from pymoo.termination import get_termination
-    from pymoo.core.callback import Callback
-    import matplotlib.pyplot as plt
+    plt.ion()
+    fig, ax = plt.subplots()
 
     problem = FlexibleArchProblem()
 
@@ -629,43 +851,39 @@ if __name__ == "__main__":
     crossover = FlexibleCrossover(n_types=problem.n_types, n_tasks=problem.n_tasks, prob=0.9)
     mutation = FlexibleMutation(n_types=problem.n_types, n_tasks=problem.n_tasks, mutation_rate=0.3, max_alloc=3)
 
-    algorithm = NSGA2(pop_size=100,
+    algorithm = NSGA2(pop_size=50,
                       sampling=sampling,
                       crossover=crossover,
                       mutation=mutation,
                       eliminate_duplicates=True)
 
-    # plotting callback
-    plt.ion()
-    fig, ax = plt.subplots()
-    class PlotCallback(Callback):
-        def __init__(self, ax):
-            super().__init__()
-            self.ax = ax
-        def notify(self, algorithm):
-            F = algorithm.pop.get("F")
-            if F is None or len(F)==0:
-                return
-            self.ax.clear()
-            self.ax.scatter(F[:,0], F[:,1])
-            self.ax.set_xlabel("Makespan")
-            self.ax.set_ylabel("Cost")
-            self.ax.set_title(f"Generation {algorithm.n_gen}")
-            plt.pause(0.01)
+    ref_point = [max(problem.n_tasks*3, 20), max(problem.n_tasks*10, 50)]
 
-    termination = get_termination("n_gen", 30)
+    callback = PlotAndLogCallback(ax, ref_point=ref_point)
 
-    res = minimize(problem,
-                   algorithm,
-                   termination,
-                   seed=1,
-                   callback=PlotCallback(ax),
-                   verbose=True)
+    termination = get_termination("n_gen", 60)
+
+    res = minimize(
+        problem,
+        algorithm,
+        termination,
+        seed=1,
+        callback=callback,
+        verbose=True
+    )
 
     plt.ioff()
     plt.show()
 
-    print("Final Pareto front (makespan, cost):")
+    # ================= RESULTS =================
+    print("\n===== FINAL PARETO FRONT (makespan, cost) =====")
     print(res.F)
-    print("Sample solution (allocation | binding):")
+
+    print("\n===== SAMPLE SOLUTION (allocation | binding) =====")
     print(res.X[0])
+
+    print("\n===== GENERATION SUMMARY TABLE =====")
+    df = callback.get_table()
+    print(df)
+
+    # df.to_csv("nsga2_generation_log.csv", index=False)
