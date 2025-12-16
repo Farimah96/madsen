@@ -305,20 +305,24 @@ class fixed_arch_problem(ElementwiseProblem):
                 scheduled_tasks[y] = (est, pe_index) # (start_time, pe)
                 unscheduled_tasks.remove(y)
 
-            print("final scheduled tasks are:", scheduled_tasks)
+            # print("final scheduled tasks are:", scheduled_tasks)
 
-            # print scheduling details
+            # print scheduling details############################################################################################################################
             for task, (start, pe) in scheduled_tasks.items():
                 exec_t = exec_time[tasks.index(task)][pe]
                 pe_type = pe_types[pe] if pe < len(pe_types) else f"PE{pe}"
-                print(f"Task {task} is scheduled on PE {pe} (type {pe_type}) starting at time {start} with execution time {exec_t}")
+                # print(f"Task {task} is scheduled on PE {pe} (type {pe_type}) starting at time {start} with execution time {exec_t}")
                 parents = return_parents(task)
                 for parent in parents:
                     if parent in scheduled_tasks:
                         comm_t = weights.get((parent, task), 0)
                         if comm_t > 0:
-                            print(f"  Communication time from parent task {parent} to task {task} is {comm_t}")
+                            continue
+                            # print(f"  Communication time from parent task {parent} to task {task} is {comm_t}")
 
+            # print all of chromosomes of each generation
+            
+            
             return scheduled_tasks
 
 
@@ -414,7 +418,7 @@ class MyMutation(Mutation):
                     new_pe = np.random.randint(0, self.num_pes)
                     individual[j] = new_pe
             Y[i] = individual
-            print("individual after mutation: ", Y[i])
+            # print("individual after mutation: ", Y[i])
         return Y
 
 
@@ -444,7 +448,7 @@ class MyCrossover(Crossover):
             else:
                 Y[0, i] = parent1
                 Y[1, i] = parent2
-            print("individual after crossover: ", Y[:, i, :])
+            # print("individual after crossover: ", Y[:, i, :])
         return Y
 
 
@@ -490,3 +494,4 @@ exec_time = [
             [0.8, 1.2, 0.9, 1.1],  # task c
             [1.3, 0.9, 0.7, 1.2],  # task d
         ])
+

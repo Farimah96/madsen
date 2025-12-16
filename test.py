@@ -20,24 +20,35 @@ class MyCallback(Callback):
         self.ax = ax
 
     def notify(self, algorithm):
-        F = algorithm.pop.get("F")
-        if F is None or len(F) == 0:
+        pop = algorithm.pop
+
+        X = pop.get("X")
+        F = pop.get("F")
+
+        if X is None or F is None:
             return
 
+        print(f"\n===== Generation {algorithm.n_gen} =====")
+        for i in range(len(X)):
+            print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
+
+        # plotting
         self.ax.clear()
-        self.ax.scatter(F[:,0], F[:,1], c='blue')
+        self.ax.scatter(F[:, 0], F[:, 1])
         self.ax.set_xlabel("Makespan")
-        self.ax.set_ylabel("cost")
+        self.ax.set_ylabel("Cost")
         self.ax.set_title(f"Pareto Front - Generation {algorithm.n_gen}")
         plt.pause(0.1)
 
+
  # Create  algorithm
 algorithm = NSGA2(
-    pop_size=20,
+    pop_size=10,
     sampling=MySampling(num_pes=len(problem.pe_types_inst)),
     crossover=MyCrossover(num_pes=len(problem.pe_types_inst)),
     mutation=MyMutation(num_pes=len(problem.pe_types_inst)),
-    eliminate_duplicates=True
+    eliminate_duplicates=True,
+    save_history=True
 )
 
 #optimization
@@ -53,10 +64,19 @@ res = minimize(
     callback=MyCallback(ax)
 )
 
+# # print all of chromosomes of each generation
+# for gen, gen_data in enumerate(algorithm.history):
+#     pop = gen_data.pop
+#     print(f"\nGeneration {gen + 1} chromosomes and objectives:")
+#     for ind in pop:
+#         X = ind.X.astype(int)
+#         F = problem.evaluate(X, return_values_of=["F"])["F"]
+#         print(f"Chromosome: {X} -> Objectives: {F}")
+
+
 plt.ioff()
 plt.show()
 
 # Results
-
-print("\nFinal Pareto Front (makespan, cost):\n", res.F)
 print("\nBest chromosomes (PE assignment vectors):\n", res.X)
+print("\nFinal Pareto Front (makespan, cost):\n", res.F)
