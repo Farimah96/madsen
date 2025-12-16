@@ -809,7 +809,7 @@ class PlotAndLogCallback(Callback):
         for i in range(len(X)):
             print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
 
-        # -------- COMPUTE NON-DOMINATED COUNT --------
+        # -------- COMPUTE NON-DOMINATED --------
         nds_idx = NonDominatedSorting().do(F, only_non_dominated_front=True)
         n_nds = len(nds_idx)
 
@@ -828,16 +828,21 @@ class PlotAndLogCallback(Callback):
             "indicator": hv_value if hv_value is not None else "f"
         })
 
-        # -------- PLOT PARETO FRONT --------
+        # -------- PLOT --------
         self.ax.clear()
-        self.ax.scatter(F[:, 0], F[:, 1])
+        self.ax.scatter(F[:, 0], F[:, 1], c='gray', s=50, label='Population')
+
+        self.ax.scatter(F[nds_idx, 0], F[nds_idx, 1], c='red', s=80, label='Pareto Front')
+
         self.ax.set_xlabel("Makespan")
         self.ax.set_ylabel("Cost")
         self.ax.set_title(f"Generation {algorithm.n_gen}")
+        self.ax.legend()
         plt.pause(0.01)
 
     def get_table(self):
         return pd.DataFrame(self.log)
+
 
 
 # ===================== MAIN =====================

@@ -21,7 +21,6 @@ class MyCallback(Callback):
 
     def notify(self, algorithm):
         pop = algorithm.pop
-
         X = pop.get("X")
         F = pop.get("F")
 
@@ -32,12 +31,19 @@ class MyCallback(Callback):
         for i in range(len(X)):
             print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
 
-        # plotting
+        # ==================== Plot ====================
         self.ax.clear()
-        self.ax.scatter(F[:, 0], F[:, 1])
+
+        self.ax.scatter(F[:, 0], F[:, 1], c='gray', s=50, label='Population')
+
+        from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
+        nds_idx = NonDominatedSorting().do(F, only_non_dominated_front=True)
+        self.ax.scatter(F[nds_idx, 0], F[nds_idx, 1], c='red', s=80, label='Pareto Front')
+
         self.ax.set_xlabel("Makespan")
         self.ax.set_ylabel("Cost")
         self.ax.set_title(f"Pareto Front - Generation {algorithm.n_gen}")
+        self.ax.legend()
         plt.pause(0.1)
 
 
@@ -53,7 +59,7 @@ algorithm = NSGA2(
 
 #optimization
 
-termination = get_termination("n_gen", 15)
+termination = get_termination("n_gen", 30)
 
 res = minimize(
     problem,
