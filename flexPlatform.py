@@ -157,108 +157,6 @@ class FlexibleArchProblem(ElementwiseProblem):
         # mapping[task] = binding[i] % P
         # { "a": 5, "b": 2, "c": 5, "d": 0 }
 
-    # --------------------------------------------------
-    #    scheduler (static list scheduling variant)1    #
-    # --------------------------------------------------
-    # def static_list_scheduler(self, tasks, weights, mapping, platform):
-        """
-        List-scheduling using b-level priority (as in many HEFT-like static list methods).
-        mapping: dict task->PE_index
-        exec times: derived from exec_time_table using platform[pe_index] -> type index
-        """
-        # helper parent/children lists
-        parents = {t: [] for t in tasks}
-        children = {t: [] for t in tasks}
-        for (u,v), w in weights.items():
-            if u in tasks and v in tasks:
-                parents[v].append(u)
-                children[u].append(v)
-
-        # topo order Kahn
-        indeg = {t:0 for t in tasks}
-        for v in tasks:
-            indeg[v] = len(parents[v])
-        Q = [t for t in tasks if indeg[t] == 0]
-        topo = []
-        while Q:
-            x = Q.pop(0)
-            topo.append(x)
-            for c in children[x]:
-                indeg[c] -= 1
-                if indeg[c] == 0:
-                    Q.append(c)
-
-        # determine exec_time(task, pe_index)
-        def exec_time_on_pe(task, pe_index):
-            # find type index of platform[pe_index]
-            if pe_index < 0 or pe_index >= len(platform):
-                return 1e6
-            ptype = platform[pe_index]
-            type_index = self.pe_types.index(ptype)
-            return self.exec_time_table[self.tasks.index(task)][type_index]
-
-        # compute b-level
-        b_level = {t: 0 for t in tasks}
-        for t in reversed(topo):
-            best = 0
-            for c in children[t]:
-                comm = self.weights.get((t,c), 0)
-                # child exec on its assigned PE
-                child_pe = mapping[c]
-                child_exec = exec_time_on_pe(c, child_pe)
-                val = b_level[c] + comm + child_exec
-                if val > best:
-                    best = val
-            b_level[t] = best
-
-        priority_list = sorted(tasks, key=lambda x: b_level[x], reverse=True)
-
-        scheduled = {}  # task -> (start_time, pe_index)
-        unscheduled = set(tasks)
-
-        # helper to compute earliest start time
-        def find_est(task, pe, scheduled):
-            # consider parent finish + communication if on different PE
-            est = 0
-            for p in parents[task]:
-                if p in scheduled:
-                    p_start, p_pe = scheduled[p]
-                    p_end = p_start + exec_time_on_pe(p, p_pe)
-                    comm = self.weights.get((p, task), 0) if p_pe != pe else 0
-                    est = max(est, p_end + comm)
-                else:
-                    # parent not scheduled yet -> not ready
-                    est = max(est, 0)
-            # consider PE availability
-            for tname, (s, ppe) in scheduled.items():
-                if ppe == pe:
-                    t_end = s + exec_time_on_pe(tname, ppe)
-                    if t_end > est:
-                        est = t_end
-            return est
-
-        # scheduling loop
-        while unscheduled:
-            chosen = None
-            for t in priority_list:
-                if t not in unscheduled: 
-                    continue
-                # check ready: all parents scheduled
-                ready = all(p in scheduled for p in parents[t])
-                if not ready:
-                    continue
-                pe = mapping[t]
-                est_candidate = find_est(t, pe, scheduled)
-                chosen = t
-                break
-            if chosen is None:
-                # no ready task found (cycle or issue). break to avoid infinite loop
-                break
-            est = find_est(chosen, mapping[chosen], scheduled)
-            scheduled[chosen] = (est, mapping[chosen])
-            unscheduled.remove(chosen)
-
-        return scheduled
 
     # --------------------------------------------------
     #    scheduler (static list scheduling variant)2    #
@@ -425,10 +323,18 @@ class FlexibleArchProblem(ElementwiseProblem):
                 et = self.exec_time_table[self.tasks.index(t)][self.pe_types.index(platform[pe])]
             makespan = max(makespan, s + et)
 
-        # compute cost: sum cost of platform instances
         cost = 0
-        for p in platform:
-            cost += self.pe_cost[p]
+        pes = []
+        for p in mapping.values():
+            pes.append(p)
+
+        del_dup = list(dict.fromkeys(pes))
+        for p in del_dup:
+            if p < 0 or p >= len(platform):
+                continue
+            ptype = platform[p]
+            cost += self.pe_cost.get(ptype, 0)
+        
 
         out["F"] = np.array([makespan, cost])
 
@@ -522,7 +428,7 @@ class FlexibleCrossover(Crossover):
         return Y
 
 ################################################################################
-#                  Mutation: multi-mode mutation per article                   #
+#                  Mutation: multi-mode mutation                               #
 ################################################################################
 class FlexibleMutation(Mutation):
     """
@@ -611,168 +517,6 @@ class FlexibleMutation(Mutation):
                 ind[self.n_types + tmove] = least
 
         return Y
-
-################################################################################
-# Optional: test bench showing how to run NSGA2 (commented for import safety)  #
-################################################################################
-# if __name__ == "__main__":
-#     # Quick test run with NSGA2 (requires pymoo installed)
-#     from pymoo.algorithms.moo.nsga2 import NSGA2
-#     from pymoo.optimize import minimize
-#     from pymoo.termination import get_termination
-#     from pymoo.core.callback import Callback
-#     import matplotlib.pyplot as plt
-
-#     problem = FlexibleArchProblem()
-
-#     sampling = FlexibleSampling(n_types=problem.n_types, n_tasks=problem.n_tasks, max_alloc=3)
-#     crossover = FlexibleCrossover(n_types=problem.n_types, n_tasks=problem.n_tasks, prob=0.9)
-#     mutation = FlexibleMutation(n_types=problem.n_types, n_tasks=problem.n_tasks, mutation_rate=0.3, max_alloc=3)
-
-#     algorithm = NSGA2(pop_size=50,
-#                       sampling=sampling,
-#                       crossover=crossover,
-#                       mutation=mutation,
-#                       eliminate_duplicates=True)
-
-#     # plotting callback
-#     plt.ion()
-#     fig, ax = plt.subplots()
-    
-#     class PlotCallback(Callback):
-#         def __init__(self, ax):
-#             super().__init__()
-#             self.ax = ax
-
-#         def notify(self, algorithm):
-#             pop = algorithm.pop
-#             X = pop.get("X")
-#             F = pop.get("F")
-
-#             if X is None or F is None or len(X) == 0:
-#                 return
-
-#             # ===== PRINT POPULATION =====
-#             print(f"\n===== Generation {algorithm.n_gen} =====")
-#             for i in range(len(X)):
-#                 print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
-
-#             # ===== PLOT PARETO FRONT =====
-#             self.ax.clear()
-#             self.ax.scatter(F[:, 0], F[:, 1])
-#             self.ax.set_xlabel("Makespan")
-#             self.ax.set_ylabel("Cost")
-#             self.ax.set_title(f"Generation {algorithm.n_gen}")
-#             plt.pause(0.01)
-
-    
-#     termination = get_termination("n_gen", 60)
-
-#     res = minimize(problem,
-#                    algorithm,
-#                    termination,
-#                    seed=1,
-#                    callback=PlotCallback(ax),
-#                    verbose=True)
-
-#     plt.ioff()
-#     plt.show()
-
-#     print("Final Pareto front (makespan, cost):")
-#     print(res.F)
-#     print("Sample solution (allocation | binding):")
-#     print(res.X[0])
-
-##############################################################3
-##############################################################
-################################################################
-
-
-# from pymoo.algorithms.moo.nsga2 import NSGA2
-# from pymoo.optimize import minimize
-# from pymoo.termination import get_termination
-# from pymoo.core.callback import Callback
-# import matplotlib.pyplot as plt
-# import pandas as pd
-# from pymoo.core.callback import Callback
-
-# class PlotAndLogCallback(Callback):
-
-#     def __init__(self, ax):
-#         super().__init__()
-#         self.ax = ax
-#         self.log = []
-
-#     def notify(self, algorithm):
-#         pop = algorithm.pop
-#         X = pop.get("X")
-#         F = pop.get("F")
-
-    
-#         if X is None or F is None or len(X) == 0:
-#             return
-
-#         # ===== PRINT POPULATION =====
-#         print(f"\n===== Generation {algorithm.n_gen} =====")
-#         for i in range(len(X)):
-#             print(f"Chromosome {i}: {X[i].astype(int)} -> Objectives: {F[i]}")
-
-#         # ===== SAVE LOG ROW (like pymoo verbose table) =====
-#         self.log.append({
-#             "gen": algorithm.n_gen,
-#             "n_eval": algorithm.evaluator.n_eval,
-#             "n_nds": len(F),
-#             "eps": getattr(algorithm.termination, "eps", None),
-#             "indicator": getattr(algorithm.termination, "indicator", "f")
-#         })
-
-#         # ===== PLOT PARETO FRONT =====
-#         self.ax.clear()
-#         self.ax.scatter(F[:, 0], F[:, 1])
-#         self.ax.set_xlabel("Makespan")
-#         self.ax.set_ylabel("Cost")
-#         self.ax.set_title(f"Generation {algorithm.n_gen}")
-#         plt.pause(0.01)
-
-#     def get_table(self):
-#         return pd.DataFrame(self.log)
-
-
-# plt.ion()
-# fig, ax = plt.subplots()
-
-# callback = PlotAndLogCallback(ax)
-
-# problem = FlexibleArchProblem()
-
-# sampling = FlexibleSampling(n_types=problem.n_types, n_tasks=problem.n_tasks, max_alloc=3)
-# crossover = FlexibleCrossover(n_types=problem.n_types, n_tasks=problem.n_tasks, prob=0.9)
-# mutation = FlexibleMutation(n_types=problem.n_types, n_tasks=problem.n_tasks, mutation_rate=0.3, max_alloc=3)
-
-# algorithm = NSGA2(pop_size=50,
-#                 sampling=sampling,
-#                 crossover=crossover,
-#                 mutation=mutation,
-#                 eliminate_duplicates=True)
-
-# termination = get_termination("n_gen", 100)
-
-# res = minimize(
-#     problem,
-#     algorithm,
-#     termination,
-#     seed=1,
-#     callback=callback,
-#     verbose=True
-# )
-
-# plt.ioff()
-# plt.show()
-
-# print("\n===== GENERATION SUMMARY TABLE =====")
-# df = callback.get_table()
-# print(df)
-
 
 ##############################################################
 ##############################################################
