@@ -58,9 +58,9 @@ class FlexibleArchProblem(ElementwiseProblem):
         }
 
         # resource types and costs
-        self.pe_types = pe_types if pe_types is not None else ["fpga", "gpp", "asic"]
+        self.pe_types = pe_types if pe_types is not None else ["fpga", "gpp", "asic", "dsp"]
         self.n_types = len(self.pe_types)
-        self.pe_cost = pe_cost if pe_cost is not None else {"fpga":100, "gpp":50, "asic":150}
+        self.pe_cost = pe_cost if pe_cost is not None else {"fpga":100, "gpp":50, "asic":150, "dsp":80}
 
         # execution time table indexed by task index and type index
         # exec_time_table[task_index][type_index]
@@ -69,10 +69,10 @@ class FlexibleArchProblem(ElementwiseProblem):
         else:
             # default: times for types in same order as pe_types
             self.exec_time_table = [
-                [0.9, 1.4, 0.7],  # a
-                [1.1, 1.0, 0.6],  # b
-                [0.8, 1.2, 0.9],  # c
-                [1.3, 0.9, 0.7],  # d
+                [0.9, 1.4, 0.7, 1],  # a
+                [1.1, 1.0, 0.6, 1.1],  # b
+                [0.8, 1.2, 0.9, 0.7],  # c
+                [1.3, 0.9, 0.7, 1.2],  # d
             ]
 
         # upper bound for allocation counts per type for sampling
