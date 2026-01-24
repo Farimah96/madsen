@@ -328,6 +328,10 @@ class FlexibleArchProblem(ElementwiseProblem):
         for p in mapping.values():
             pes.append(p)
 
+        # for t_index, count in enumerate(alloc):
+        #     ptype = platform[t_index]
+        #     cost += self.pe_cost.get(self.pe_types[t_index], 0) * max(1, int(count))
+
         del_dup = list(dict.fromkeys(pes))
         for p in del_dup:
             if p < 0 or p >= len(platform):
@@ -358,8 +362,6 @@ class FlexibleSampling(Sampling):
         for _ in range(n_samples):
             alloc = np.random.randint(1, self.max_alloc + 1, size=self.n_types)
             P = int(np.sum(alloc))
-            if P <= 0:
-                P = 1
             bind = np.random.randint(0, P, size=self.n_tasks)
             chrom = np.concatenate([alloc, bind]).astype(int)
             pop.append(chrom)
