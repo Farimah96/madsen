@@ -2,9 +2,10 @@ import numpy as np
 import subprocess
 from pymoo.core.problem import ElementwiseProblem
 import os
+import xml.etree.ElementTree as ET
+import xml.dom.minidom as minidom
 
-
-############### Application / Architecture models (used as-is) ###############
+############### Application / Architecture models ###############
 
 class Actor:
     def __init__(self, name):
@@ -12,7 +13,6 @@ class Actor:
         self.exec_time = {}
         self.in_ports = {}
         self.out_ports = {}
-
 
 class Channel:
     def __init__(self, src_actor, src_port, dst_actor, dst_port,
@@ -24,7 +24,6 @@ class Channel:
         self.prod_rate = prod_rate
         self.cons_rate = cons_rate
         self.init_tokens = init_tokens
-
 
 class Application:
     def __init__(self, name):
@@ -38,13 +37,11 @@ class Application:
     def add_channel(self, channel):
         self.channels.append(channel)
 
-
 class ProcessingElement:
     def __init__(self, name, pe_type, cost):
         self.name = name
         self.type = pe_type
         self.cost = cost
-
 
 class Architecture:
     def __init__(self):
@@ -56,87 +53,80 @@ class Architecture:
 
 ############### XML generation for SDF3 ###############
 
-import xml.etree.ElementTree as ET
-
 def generate_sdf3_xml(app, arch, mapping, filename):
-    sdf = ET.Element("sdf")
+    """
+    Generate SDF3 XML in official format.
+    """
 
-    app_el = ET.SubElement(sdf, "application", name=app.name)
+    sdf3_el = ET.Element(
+        "sdf3",
+        {
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+            "type": "sdf",
+            "version": "1.0",
+            "xsi:noNamespaceSchemaLocation": "/mnt/d/SDF3/sdf3/sdf/xsd/sdf3-sdf.xsd"
+        }
+    )
 
+    app_graph = ET.SubElement(sdf3_el, "applicationGraph", name=app.name)
+    sdf_el = ET.SubElement(app_graph, "sdf", name=app.name, type="SDF")
+
+    # Actors
     for actor in app.actors.values():
-        a_el = ET.SubElement(app_el, "actor", name=actor.name)
-
-        for pe_type, t in actor.exec_time.items():
-            ET.SubElement(
-                a_el,
-                "executionTime",
-                processor=pe_type,
-                value=str(t)
-            )
-
+        a_el = ET.SubElement(sdf_el, "actor", name=actor.name, type=actor.name)
         for port, rate in actor.in_ports.items():
-            ET.SubElement(a_el, "inPort", name=port, rate=str(rate))
-
+            ET.SubElement(a_el, "port", name=port, type="in", rate=str(rate))
         for port, rate in actor.out_ports.items():
-            ET.SubElement(a_el, "outPort", name=port, rate=str(rate))
+            ET.SubElement(a_el, "port", name=port, type="out", rate=str(rate))
 
-    for ch in app.channels:
-        ET.SubElement(
-            app_el,
-            "channel",
-            srcActor=ch.src_actor,
-            srcPort=ch.src_port,
-            dstActor=ch.dst_actor,
-            dstPort=ch.dst_port,
-            prodRate=str(ch.prod_rate),
-            consRate=str(ch.cons_rate),
-            initialTokens=str(ch.init_tokens)
-        )
+    # Channels
+    for idx, ch in enumerate(app.channels, start=1):
+        ch_name = f"ch{idx}"
+        attrs = {
+            "name": ch_name,
+            "srcActor": ch.src_actor,
+            "srcPort": ch.src_port,
+            "dstActor": ch.dst_actor,
+            "dstPort": ch.dst_port
+        }
+        if ch.init_tokens > 0:
+            attrs["initialTokens"] = str(ch.init_tokens)
+        ET.SubElement(sdf_el, "channel", **attrs)
 
-    arch_el = ET.SubElement(sdf, "architecture")
+    # sdfProperties
+    sdf_props = ET.SubElement(app_graph, "sdfProperties")
+    # Actor properties with execution times
+    for actor in app.actors.values():
+        actor_prop = ET.SubElement(sdf_props, "actorProperties", actor=actor.name)
+        for pe_type, t in actor.exec_time.items():
+            proc = ET.SubElement(actor_prop, "processor", type=pe_type, default="true")
+            ET.SubElement(proc, "executionTime", time=str(t))
 
-    for pe in arch.pes:
-        ET.SubElement(
-            arch_el,
-            "processor",
-            name=pe.name,
-            type=pe.type,
-            cost=str(pe.cost)
-        )
+    # Channel properties
+    for idx, ch in enumerate(app.channels, start=1):
+        ch_name = f"ch{idx}"
+        ET.SubElement(sdf_props, "channelProperties", channel=ch_name)
 
-    map_el = ET.SubElement(sdf, "mapping")
+    ET.SubElement(sdf_props, "graphProperties")
 
-    for actor, pe_name in mapping.items():
-        ET.SubElement(
-            map_el,
-            "bind",
-            actor=actor,
-            processor=pe_name
-        )
+    # Pretty print
+    rough_string = ET.tostring(sdf3_el, 'utf-8')
+    reparsed = minidom.parseString(rough_string)
+    pretty_xml = reparsed.toprettyxml(indent="  ")
+    pretty_xml = "\n".join([line for line in pretty_xml.splitlines() if line.strip()])
 
-    tree = ET.ElementTree(sdf)
-    tree.write(filename, encoding="utf-8", xml_declaration=True)
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(pretty_xml)
 
 
 ############### SDF3 invocation ###############
 
-
-def win_to_wsl_path(win_path):
-    win_path = os.path.abspath(win_path)
-    drive = win_path[0].lower()
-    path_rest = win_path[2:].replace("\\", "/")
-    return f"/mnt/{drive}/{path_rest}"
-
-def run_sdf3(xml_file_win):
-    xml_file_wsl = win_to_wsl_path(xml_file_win)
-
+def run_sdf3(xml_file):
     cmd = [
-        "wsl",
         "/mnt/d/SDF3/sdf3/build/release/Linux/bin/sdf3analysis-sdf",
-        "--graph", xml_file_wsl,
+        "--graph", xml_file,
         "--algo", "throughput"
     ]
-
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = "/mnt/d/SDF3/sdf3/build/release/Linux/lib:" + env.get("LD_LIBRARY_PATH", "")
 
@@ -148,10 +138,6 @@ def run_sdf3(xml_file_win):
         print("Output:", e.output.decode() if e.output else "")
         return 0.0
 
-
-
-
-
 def parse_throughput(output):
     for line in output.splitlines():
         if "throughput" in line.lower():
@@ -162,14 +148,7 @@ def parse_throughput(output):
 ############### Problem Definition ###############
 
 class SDFMappingProblem(ElementwiseProblem):
-
-    def __init__(self,
-                 application,
-                 pe_types,
-                 pe_cost,
-                 max_alloc_per_type=4,
-                 **kwargs):
-
+    def __init__(self, application, pe_types, pe_cost, max_alloc_per_type=4, **kwargs):
         self.app = application
         self.actors = list(application.actors.keys())
         self.n_tasks = len(self.actors)
@@ -182,7 +161,6 @@ class SDFMappingProblem(ElementwiseProblem):
         n_var = self.n_types + self.n_tasks
         super().__init__(n_var=n_var, n_obj=2, elementwise=True, **kwargs)
 
-    ############### allocation → Architecture ###############
     def allocation_to_architecture(self, alloc):
         arch = Architecture()
         idx = 0
@@ -197,7 +175,6 @@ class SDFMappingProblem(ElementwiseProblem):
                 idx += 1
         return arch
 
-    ############### binding → mapping ###############
     def binding_to_mapping(self, binding, arch):
         mapping = {}
         P = len(arch.pes)
@@ -205,15 +182,12 @@ class SDFMappingProblem(ElementwiseProblem):
             for actor in self.actors:
                 mapping[actor] = "P0"
             return mapping
-
         for i, actor in enumerate(self.actors):
             pe = arch.pes[int(binding[i]) % P]
             mapping[actor] = pe.name
         return mapping
 
-    ############### evaluate ###############
     def _evaluate(self, x, out, *args, **kwargs):
-
         alloc = x[:self.n_types].astype(int)
         binding = x[self.n_types:].astype(int)
 
@@ -224,7 +198,6 @@ class SDFMappingProblem(ElementwiseProblem):
         generate_sdf3_xml(self.app, arch, mapping, xml_file)
 
         throughput = run_sdf3(xml_file)
-
         cost = sum(pe.cost for pe in arch.pes)
 
         out["F"] = np.array([
@@ -233,14 +206,11 @@ class SDFMappingProblem(ElementwiseProblem):
         ])
 
 
-
-############################################################
-######################## TEST BENCH ########################
-############################################################
+############### TEST BENCH ########################
 
 if __name__ == "__main__":
 
-    ######################## Application ########################
+    # Application
     app = Application("toy_sdf")
 
     a = Actor("A")
@@ -263,7 +233,7 @@ if __name__ == "__main__":
     app.add_channel(Channel("A", "out", "B", "in", 1, 1))
     app.add_channel(Channel("B", "out", "C", "in", 1, 1))
 
-    ######################## Problem ########################
+    # Problem
     problem = SDFMappingProblem(
         application=app,
         pe_types=["gpp", "fpga"],
@@ -271,16 +241,16 @@ if __name__ == "__main__":
         max_alloc_per_type=3
     )
 
-    ######################## Fake chromosome ########################
-    alloc = np.array([2, 1])       # 2 GPP, 1 FPGA
-    binding = np.array([0, 2, 1])  # A->P0, B->P2, C->P1
+    # Fake chromosome
+    alloc = np.array([2, 1])
+    binding = np.array([0, 2, 1])
     x = np.concatenate([alloc, binding])
 
-    ######################## Evaluate ########################
+    # Evaluate
     out = {}
     problem._evaluate(x, out)
 
-    ######################## Print results ########################
+    # Print results
     print("\n========== CHROMOSOME ==========")
     print("Allocation:", alloc)
     print("Binding:", binding)
@@ -288,7 +258,7 @@ if __name__ == "__main__":
     print("\n========== OBJECTIVES ==========")
     print("F =", out["F"])
 
-    ######################## Show XML ########################
+    # Show XML
     print("\n========== GENERATED XML ==========")
-    with open("tmp_sdf_model.xml", "r") as f:
+    with open("tmp_sdf_model.xml", "r", encoding="utf-8") as f:
         print(f.read())
