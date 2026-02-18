@@ -23,9 +23,11 @@ from pymoo.core.mutation import Mutation
 try:
     import networkx as nx
     import matplotlib.pyplot as plt
+
     _HAS_NX = True
 except Exception:
     _HAS_NX = False
+
 
 ################################################################################
 #                              Problem definition                              #
@@ -34,6 +36,7 @@ class FlexibleArchProblem(ElementwiseProblem):
     """
     Flexible architecture mapping problem.
     """
+
     def __init__(self,
                  tasks=None,
                  weights=None,
@@ -60,7 +63,7 @@ class FlexibleArchProblem(ElementwiseProblem):
         # resource types and costs
         self.pe_types = pe_types if pe_types is not None else ["fpga", "gpp", "asic", "dsp"]
         self.n_types = len(self.pe_types)
-        self.pe_cost = pe_cost if pe_cost is not None else {"fpga":100, "gpp":50, "asic":150, "dsp":80}
+        self.pe_cost = pe_cost if pe_cost is not None else {"fpga": 100, "gpp": 50, "asic": 150, "dsp": 80}
 
         # execution time table indexed by task index and type index
         # exec_time_table[task_index][type_index]
@@ -68,12 +71,12 @@ class FlexibleArchProblem(ElementwiseProblem):
             self.exec_time_table = exec_time_table
         else:
             # default: times for types in same order as pe_types
-            self.exec_time_table = [
+            self.exec_time_table = np.array([
                 [0.9, 1.4, 0.7, 1],  # a
                 [1.1, 1.0, 0.6, 1.1],  # b
                 [0.8, 1.2, 0.9, 0.7],  # c
                 [1.3, 0.9, 0.7, 1.2],  # d
-            ]
+            ], dtype=float)
 
         # upper bound for allocation counts per type for sampling
         self.max_alloc = int(max_alloc_per_type)
@@ -117,7 +120,7 @@ class FlexibleArchProblem(ElementwiseProblem):
         bridges = []
         if len(buses) > 1:
             # connect bus0 and bus1
-            bridges.append((0,1))
+            bridges.append((0, 1))
         return buses, bridges
         # ex:platform = ["cpu", "cpu", "cpu", "dsp", "asic", "asic"]
         # half = P // 2 = 3
@@ -128,8 +131,6 @@ class FlexibleArchProblem(ElementwiseProblem):
         #     [3, 4, 5]    # bus1
         # ]
         # bridges = [(0, 1)]
-
-
 
     def binding_to_mapping(self, platform, binding):
         """
@@ -149,18 +150,17 @@ class FlexibleArchProblem(ElementwiseProblem):
             # repair: modulo P
             mapping[task] = raw % P
         return mapping
-    
+
         # platform = ["cpu", "cpu", "cpu", "dsp", "asic", "asic"]
         # binding  = [5, 8, 11, 0]   # raw genes
         # tasks    = ["a", "b", "c", "d"]
-        # P = 6 
+        # P = 6
         # mapping[task] = binding[i] % P
         # { "a": 5, "b": 2, "c": 5, "d": 0 }
 
-
     # --------------------------------------------------
     #    scheduler (static list scheduling variant)2    #
-    # --------------------------------------------------    
+    # --------------------------------------------------
 
     def static_list_scheduler(self, tasks, weights, mapping, platform):
         """
@@ -292,7 +292,6 @@ class FlexibleArchProblem(ElementwiseProblem):
         return scheduled
         # return value is task_name : (start_time, pe_index)
 
-    
     # -------------------------
     #        evaluation       #
     # -------------------------
@@ -338,9 +337,9 @@ class FlexibleArchProblem(ElementwiseProblem):
                 continue
             ptype = platform[p]
             cost += self.pe_cost.get(ptype, 0)
-        
 
         out["F"] = np.array([makespan, cost])
+
 
 ################################################################################
 #                   Sampling for flexible chromosome                           #
@@ -351,6 +350,7 @@ class FlexibleSampling(Sampling):
     - allocation: random integers in [1..max_alloc]
     - binding: random integers in [0..P-1] where P = sum(allocation)
     """
+
     def __init__(self, n_types, n_tasks, max_alloc=4):
         super().__init__()
         self.n_types = n_types
@@ -367,6 +367,7 @@ class FlexibleSampling(Sampling):
             pop.append(chrom)
         return np.array(pop)
 
+
 ################################################################################
 # Crossover: two-stage (allocation crossover then binding inheritance + repair)#
 ################################################################################
@@ -376,6 +377,7 @@ class FlexibleCrossover(Crossover):
     1) crossover allocation vectors (one-point)
     2) for each task, randomly inherit binding from one of the parents, then repair binding modulo P
     """
+
     def __init__(self, n_types, n_tasks, prob=0.8):
         super().__init__(2, 2)
         self.n_types = n_types
@@ -429,6 +431,7 @@ class FlexibleCrossover(Crossover):
 
         return Y
 
+
 ################################################################################
 #                  Mutation: multi-mode mutation                               #
 ################################################################################
@@ -441,6 +444,7 @@ class FlexibleMutation(Mutation):
     - bus-aware reassign (tasks moved between PEs on same bus)
     - heuristic placeholder (if deadlines provided)
     """
+
     def __init__(self, n_types, n_tasks, mutation_rate=0.6, max_alloc=4):
         super().__init__()
         self.n_types = n_types
@@ -520,6 +524,7 @@ class FlexibleMutation(Mutation):
 
         return Y
 
+
 ##############################################################
 ##############################################################
 ##############################################################
@@ -533,6 +538,7 @@ from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 from pymoo.indicators.hv import HV
 import matplotlib.pyplot as plt
 import pandas as pd
+
 
 # ================= CALLBACK =================
 class PlotAndLogCallback(Callback):
@@ -590,7 +596,6 @@ class PlotAndLogCallback(Callback):
         return pd.DataFrame(self.log)
 
 
-
 # ===================== MAIN =====================
 if __name__ == "__main__":
     plt.ion()
@@ -608,7 +613,7 @@ if __name__ == "__main__":
                       mutation=mutation,
                       eliminate_duplicates=True)
 
-    ref_point = [max(problem.n_tasks*3, 20), max(problem.n_tasks*10, 50)]
+    ref_point = [max(problem.n_tasks * 3, 20), max(problem.n_tasks * 10, 50)]
 
     callback = PlotAndLogCallback(ax, ref_point=ref_point)
 
