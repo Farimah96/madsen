@@ -49,7 +49,7 @@ class MyCallback(Callback):
 
  # Create  algorithm
 algorithm = NSGA2(
-    pop_size=10,
+    pop_size=80,
     sampling=MySampling(num_pes=len(problem.pe_types_inst)),
     crossover=MyCrossover(num_pes=len(problem.pe_types_inst)),
     mutation=MyMutation(num_pes=len(problem.pe_types_inst)),
@@ -59,7 +59,7 @@ algorithm = NSGA2(
 
 #optimization
 
-termination = get_termination("n_gen", 30)
+termination = get_termination("n_gen", 50)
 
 res = minimize(
     problem,

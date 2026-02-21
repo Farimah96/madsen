@@ -403,7 +403,7 @@ class MySampling(Sampling):
 
 
 class MyMutation(Mutation):
-    def __init__(self, mutation_rate=0.4, num_pes=4):
+    def __init__(self, mutation_rate=0.05, num_pes=4):
         super().__init__()
         self.mutation_rate = mutation_rate
         self.num_pes = int(num_pes)
