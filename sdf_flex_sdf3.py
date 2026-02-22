@@ -67,7 +67,10 @@ class FlexibleArchProblem(ElementwiseProblem):
 
         n_var = self.n_types + self.n_tasks
 
-        xl = np.zeros(n_var)
+        xl = np.concatenate([
+            np.ones(self.n_types),  # allocation >= 1
+            np.zeros(self.n_tasks)
+        ])
 
         xu = np.concatenate([
             np.full(self.n_types, self.max_alloc),  # alloc bounds
@@ -188,12 +191,17 @@ class FlexibleArchProblem(ElementwiseProblem):
         for p in mapping.values():
             pes.append(p)
 
-        del_dup = list(dict.fromkeys(pes))
-        for p in del_dup:
-            if p < 0 or p >= len(platform):
-                continue
-            ptype = platform[p]
-            cost += self.pe_cost.get(ptype, 0)  ############## 1 ?
+        # del_dup = list(dict.fromkeys(pes))
+        # for p in del_dup:
+        #     if p < 0 or p >= len(platform):
+        #         continue
+        #     ptype = platform[p]
+        #     cost += self.pe_cost.get(ptype, 0)
+
+        cost = 0
+        for t_index, cnt in enumerate(alloc):
+            ptype = self.pe_types[t_index]
+            cost += cnt * self.pe_cost.get(ptype, 0)
 
         xml_file = f"tmp_{np.random.randint(1e9)}.xml"
         generate_sdf3_xml(app, platform, mapping, xml_file)
@@ -331,6 +339,195 @@ def parse_throughput(output):
     return 0.0
 
 
+####################################################
+################# Operators ########################
+####################################################
+
+
+################################################################################
+#                   Sampling for flexible chromosome                           #
+################################################################################
+class FlexibleSampling(Sampling):
+    """
+    Sampling for flexible chromosomes
+    - allocation: random integers in [1..max_alloc]
+    - binding: random integers in [0..P-1] where P = sum(allocation)
+    """
+
+    def __init__(self, n_types, n_tasks, max_alloc=4):
+        super().__init__()
+        self.n_types = n_types
+        self.n_tasks = n_tasks
+        self.max_alloc = int(max_alloc)
+
+    def _do(self, problem, n_samples, **kwargs):
+        pop = []
+        for _ in range(n_samples):
+            alloc = np.random.randint(1, self.max_alloc + 1, size=self.n_types)
+            P = int(np.sum(alloc))
+            bind = np.random.randint(0, P, size=self.n_tasks)
+            chrom = np.concatenate([alloc, bind]).astype(int)
+            pop.append(chrom)
+        return np.array(pop)
+
+
+################################################################################
+# Crossover: two-stage (allocation crossover then binding inheritance + repair)#
+################################################################################
+class FlexibleCrossover(Crossover):
+    """
+    Two-stage crossover:
+    1) crossover allocation vectors (one-point)
+    2) for each task, randomly inherit binding from one of the parents, then repair binding modulo P
+    """
+
+    def __init__(self, n_types, n_tasks, prob=0.8):
+        super().__init__(2, 2)
+        self.n_types = n_types
+        self.n_tasks = n_tasks
+        self.prob = prob
+
+    def _do(self, problem, X, **kwargs):
+        n_off, n_mat, n_var = X.shape
+        Y = np.full_like(X, np.nan)
+
+        for k in range(n_mat):
+            p1 = X[0, k].copy().astype(int)
+            p2 = X[1, k].copy().astype(int)
+            c1 = p1.copy()
+            c2 = p2.copy()
+
+            if np.random.rand() < self.prob:
+                # allocation one-point crossover
+                if self.n_types > 1:
+                    point = np.random.randint(1, self.n_types)
+                else:
+                    point = 1
+                c1[:point] = p1[:point]
+                c1[point:self.n_types] = p2[point:self.n_types]
+                c2[:point] = p2[:point]
+                c2[point:self.n_types] = p1[point:self.n_types]
+
+                # binding inheritance per-task
+                for j in range(self.n_tasks):
+                    if np.random.rand() < 0.5:
+                        c1[self.n_types + j] = p1[self.n_types + j]
+                        c2[self.n_types + j] = p2[self.n_types + j]
+                    else:
+                        c1[self.n_types + j] = p2[self.n_types + j]
+                        c2[self.n_types + j] = p1[self.n_types + j]
+
+                # repair binding according to new allocations
+                for child in (c1, c2):
+                    alloc_child = child[:self.n_types].astype(int)
+                    P = int(np.sum(alloc_child))
+                    if P <= 0:
+                        P = 1
+                    for j in range(self.n_tasks):
+                        child[self.n_types + j] = int(child[self.n_types + j]) % P
+            else:
+                c1 = p1
+                c2 = p2
+
+            Y[0, k] = c1
+            Y[1, k] = c2
+
+        return Y
+
+
+################################################################################
+#                  Mutation: multi-mode mutation                               #
+################################################################################
+class FlexibleMutation(Mutation):
+    """
+    Mutation supports:
+    - allocation increment/decrement (change counts)
+    - addPE / removePE implemented as increment/decrement of allocation counts
+    - random reassign tasks (binding mutation)
+    - bus-aware reassign (tasks moved between PEs on same bus)
+    - heuristic placeholder (if deadlines provided)
+    """
+
+    def __init__(self, n_types, n_tasks, mutation_rate=0.6, max_alloc=4):
+        super().__init__()
+        self.n_types = n_types
+        self.n_tasks = n_tasks
+        self.mrate = float(mutation_rate)
+        self.max_alloc = int(max_alloc)
+
+    def _do(self, problem, X, **kwargs):
+        Y = X.copy().astype(int)
+        for i in range(Y.shape[0]):
+            ind = Y[i]
+
+            # pick which mutation group to run (allow multiple small changes)
+            # allocation changes
+            for t in range(self.n_types):
+                if np.random.rand() < (self.mrate / 2):
+                    # increase or decrease allocation count
+                    delta = np.random.choice([-1, 1])
+                    ind[t] = int(max(1, min(self.max_alloc, ind[t] + delta)))
+
+            # optional addPE (increment some allocation)
+            if np.random.rand() < (self.mrate * 0.4):
+                idx = np.random.randint(0, self.n_types)
+                ind[idx] = int(min(self.max_alloc, ind[idx] + 1))
+
+            # optional removePE (decrement some allocation if >1)
+            if np.random.rand() < (self.mrate * 0.4):
+                idx = np.random.randint(0, self.n_types)
+                ind[idx] = int(max(1, ind[idx] - 1))
+
+            # rebuild platform size and simple buses for binding mutation
+            alloc = ind[:self.n_types]
+            P = int(np.sum(alloc))
+            if P <= 0:
+                P = 1
+
+            # binding mutation: random reassign some tasks
+            for j in range(self.n_tasks):
+                if np.random.rand() < self.mrate:
+                    ind[self.n_types + j] = np.random.randint(0, P)
+
+            # bus-aware reassign: move some tasks within same bus
+            if np.random.rand() < (self.mrate * 0.5):
+                # build simple buses: first half, second half
+                buses = []
+                if P == 1:
+                    buses = [[0]]
+                else:
+                    half = max(1, P // 2)
+                    buses = [list(range(0, half)), list(range(half, P))]
+                # pick a bus with at least 1 PE
+                bidx = np.random.randint(0, len(buses))
+                src_bus = buses[bidx]
+                if len(src_bus) >= 2:
+                    # choose a PE from this bus and a different PE in same bus
+                    pe_from = np.random.choice(src_bus)
+                    pe_to = np.random.choice([p for p in src_bus if p != pe_from])
+                    # pick some tasks currently assigned to pe_from and move them
+                    assigned_tasks = [j for j in range(self.n_tasks) if (ind[self.n_types + j] % P) == pe_from]
+                    if assigned_tasks:
+                        k = min(len(assigned_tasks), np.random.randint(1, 4))
+                        to_move = np.random.choice(assigned_tasks, size=k, replace=False)
+                        for tm in to_move:
+                            ind[self.n_types + tm] = pe_to
+
+            # heuristic reassignment placeholder (no deadlines implemented)
+            # if problem has attribute task_deadlines (dict), we could implement
+            # moving tasks that miss deadlines to less loaded PEs.
+            if hasattr(problem, "task_deadlines") and np.random.rand() < (self.mrate * 0.2):
+                # basic heuristic: move one random task to least loaded PE
+                loads = [0] * P
+                for j in range(self.n_tasks):
+                    loads[ind[self.n_types + j] % P] += 1
+                least = int(np.argmin(loads))
+                tmove = np.random.randint(0, self.n_tasks)
+                ind[self.n_types + tmove] = least
+
+        return Y
+
+
 #####################################################  main  #################################################
 
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -342,7 +539,11 @@ if __name__ == "__main__":
     problem = FlexibleArchProblem()
 
     algorithm = NSGA2(
-        pop_size=5
+        pop_size=20,
+        sampling=FlexibleSampling(problem.n_types, problem.n_tasks, problem.max_alloc),
+        crossover=FlexibleCrossover(problem.n_types, problem.n_tasks, prob=0.9),
+        mutation=FlexibleMutation(problem.n_types, problem.n_tasks, mutation_rate=0.4, max_alloc=problem.max_alloc),
+        eliminate_duplicates=True
     )
 
     termination = get_termination("n_gen", 5)
