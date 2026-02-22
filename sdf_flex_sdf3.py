@@ -44,7 +44,7 @@ class FlexibleArchProblem(ElementwiseProblem):
 
         self.pe_types = pe_types if pe_types is not None else ["fpga", "gpp", "asic", "dsp"]
         self.n_types = len(self.pe_types)
-        self.pe_cost = pe_cost if pe_cost is not None else {"fpga":100, "gpp":50, "asic":150, "dsp":80}
+        self.pe_cost = pe_cost if pe_cost is not None else {"fpga": 100, "gpp": 50, "asic": 150, "dsp": 80}
 
         if exec_time_table is not None:
             self.exec_time_table = exec_time_table
@@ -59,19 +59,19 @@ class FlexibleArchProblem(ElementwiseProblem):
         self.max_alloc = int(max_alloc_per_type)
 
         self.tokens_matrix = [
-            [(False, 0),(True, 0),(True, 0),(False, 0)],
-            [(False, 0),(False, 0),(True, 0),(True, 0)],
-            [(False, 0),(False, 0),(False, 0),(True, 0)],
-            [(True, 1),(False, 0),(False, 0),(False, 0)]
+            [(False, 0), (True, 0), (True, 0), (False, 0)],
+            [(False, 0), (False, 0), (True, 0), (True, 0)],
+            [(False, 0), (False, 0), (False, 0), (True, 0)],
+            [(True, 1), (False, 0), (False, 0), (False, 0)]
         ]
 
         n_var = self.n_types + self.n_tasks
-        
+
         xl = np.zeros(n_var)
 
         xu = np.concatenate([
-            np.full(self.n_types, self.max_alloc),   # alloc bounds
-            np.full(self.n_tasks, 20)                # binding bounds
+            np.full(self.n_types, self.max_alloc),  # alloc bounds
+            np.full(self.n_tasks, 20)  # binding bounds
         ])
 
         super().__init__(
@@ -81,8 +81,6 @@ class FlexibleArchProblem(ElementwiseProblem):
             xl=xl,
             xu=xu
         )
-        
-
 
     def allocation_to_platform(self, alloc_vector):
         platform = []
@@ -92,10 +90,9 @@ class FlexibleArchProblem(ElementwiseProblem):
             for _ in range(int(max(0, cnt))):
                 platform.append(self.pe_types[t_index])
         return platform
-        
+
         # in => alloc_vector = [A, B, C, ...] & out => platform = ["cpu", "cpu", "cpu", "dsp", "asic", ...]  // based on pe types index
-        
-        
+
     def binding_to_mapping(self, platform, binding):
         mapping = {}
         P = len(platform)
@@ -108,15 +105,13 @@ class FlexibleArchProblem(ElementwiseProblem):
             raw = int(binding[i])
             mapping[task] = raw % P
         return mapping
-    
+
         # platform = ["cpu", "cpu", "cpu", "dsp", "asic", "asic"]
         # binding  = [5, 8, 11, 0]   # raw genes
         # tasks    = ["a", "b", "c", "d"]
-        # P = 6 
+        # P = 6
         # mapping[task] = binding[i] % P
         # { "a": 5, "b": 2, "c": 5, "d": 0 }
-        
-
 
     class Actor:
         def __init__(self, name, exec_time):
@@ -139,9 +134,8 @@ class FlexibleArchProblem(ElementwiseProblem):
             self.actors = {}
             self.channels = []
 
-
     def _evaluate(self, x, out, *args, **kwargs):
-        
+
         alloc = np.array(x[:self.n_types], dtype=int)
         binding = np.array(x[self.n_types:], dtype=int)
 
@@ -152,8 +146,8 @@ class FlexibleArchProblem(ElementwiseProblem):
             out["F"] = np.array([1e6, 1e6])
             return
 
-
         app = self.SDFApplication("app")
+
         for t_index, task in enumerate(self.tasks):
             actor = self.Actor(task, {})
             actor.in_ports = {}
@@ -168,7 +162,6 @@ class FlexibleArchProblem(ElementwiseProblem):
             actor.exec_time = {assigned_pe_type: exec_time}
 
             app.actors[task] = actor
-
 
         for i, src in enumerate(self.tasks):
             for j, dst in enumerate(self.tasks):
@@ -190,8 +183,6 @@ class FlexibleArchProblem(ElementwiseProblem):
                     app.actors[src].out_ports[out_port_name] = 1
                     app.actors[dst].in_ports[in_port_name] = 1
 
-
-
         cost = 0
         pes = []
         for p in mapping.values():
@@ -203,8 +194,7 @@ class FlexibleArchProblem(ElementwiseProblem):
                 continue
             ptype = platform[p]
             cost += self.pe_cost.get(ptype, 0)  ############## 1 ?
-        
-        
+
         xml_file = f"tmp_{np.random.randint(1e9)}.xml"
         generate_sdf3_xml(app, platform, mapping, xml_file)
 
@@ -215,15 +205,12 @@ class FlexibleArchProblem(ElementwiseProblem):
             cost
         ])
 
-        
-
-
 
 #######################################################
 ############### XML generation for SDF3 ###############
 #######################################################
 
-def generate_sdf3_xml(app, platform, mapping, filename):  #platform -= list of PEs that create from alloc
+def generate_sdf3_xml(app, platform, mapping, filename):  # platform -= list of PEs that create from alloc
     """
     Generate SDF3 XML in official format.
     """
@@ -240,15 +227,13 @@ def generate_sdf3_xml(app, platform, mapping, filename):  #platform -= list of P
 
     app_graph = ET.SubElement(sdf3_el, "applicationGraph", name=app.name)
     sdf_el = ET.SubElement(app_graph, "sdf", name=app.name, type="SDF")
-    
-    
+
     arch_graph = ET.SubElement(sdf3_el, "architectureGraph", name="arch")
     for i, pe_type in enumerate(platform):
         tile = ET.SubElement(arch_graph, "tile", name=f"t{i}")
         ET.SubElement(tile, "processor", name=f"p{i}", type=pe_type)
         ET.SubElement(tile, "memory", name=f"m{i}", size="1024")  # dummy memory
         ET.SubElement(tile, "networkInterface", name=f"ni{i}")
-
 
     mapping_el = ET.SubElement(
         sdf3_el,
@@ -268,7 +253,6 @@ def generate_sdf3_xml(app, platform, mapping, filename):  #platform -= list of P
         for actor_name in actors:
             ET.SubElement(tile_el, "actor", name=actor_name)
 
-    
     # Actors
     for actor in app.actors.values():
         a_el = ET.SubElement(sdf_el, "actor", name=actor.name, type=actor.name)
@@ -338,15 +322,15 @@ def run_sdf3(xml_file):
         print("Output:", e.output.decode() if e.output else "")
         return 0.0
 
+
 def parse_throughput(output):
     for line in output.splitlines():
-        if "throughput" in line.lower():
-            return float(line.split()[-1])
+        line = line.strip()
+        if line.startswith("thr("):
+            return float(line.split("=")[-1].strip())
     return 0.0
 
 
-
-        
 #####################################################  main  #################################################
 
 from pymoo.algorithms.moo.nsga2 import NSGA2
