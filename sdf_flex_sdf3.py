@@ -12,6 +12,11 @@ import os
 import xml.etree.ElementTree as ET
 import subprocess
 from xml.dom import minidom
+import matplotlib
+
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 ###############################################
@@ -528,6 +533,42 @@ class FlexibleMutation(Mutation):
         return Y
 
 
+#################################################
+################### plot #####################3##
+#################################################
+
+from pymoo.core.callback import Callback
+from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
+
+
+class PlotAndLogCallback(Callback):
+
+    def __init__(self):
+        super().__init__()
+        self.n_gen = 0
+
+    def notify(self, algorithm):
+        self.n_gen += 1
+
+        F = algorithm.pop.get("F")
+
+        if F is None:
+            return
+
+        nds = NonDominatedSorting()
+        nd_idx = nds.do(F, only_non_dominated_front=True)
+
+        plt.figure()
+        plt.scatter(F[:, 0], F[:, 1])
+        plt.scatter(F[nd_idx, 0], F[nd_idx, 1])
+        plt.xlabel("Throughput (negative)")
+        plt.ylabel("Cost")
+        plt.title(f"Generation {self.n_gen}")
+
+        plt.savefig(f"pareto_gen_{self.n_gen}.png")
+        plt.close()
+
+
 #####################################################  main  #################################################
 
 from pymoo.algorithms.moo.nsga2 import NSGA2
@@ -548,12 +589,15 @@ if __name__ == "__main__":
 
     termination = get_termination("n_gen", 5)
 
+    callback = PlotAndLogCallback()
+
     res = minimize(
         problem,
         algorithm,
         termination,
         seed=1,
-        verbose=True
+        verbose=True,
+        callback=callback
     )
 
     print("Best Solutions (Pareto Front):")
