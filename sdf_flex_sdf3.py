@@ -587,7 +587,7 @@ if __name__ == "__main__":
         eliminate_duplicates=True
     )
 
-    termination = get_termination("n_gen", 5)
+    termination = get_termination("n_gen", 10)
 
     callback = PlotAndLogCallback()
 
