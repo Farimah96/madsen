@@ -1,3 +1,45 @@
+"""
+Multi-Objective Hardware/Software Co-Design for SDF Applications using NSGA-II
+
+Before running this script, make sure to set up the SDF3 environment:
+
+    export LD_LIBRARY_PATH=/Your path/sdf3/build/release/Linux/lib:$LD_LIBRARY_PATH
+    export PATH=$PATH:/Your path/sdf3/build/release/Linux/bin
+
+Or add these lines to your ~/.bashrc file for permanent setup.
+
+This code automatically explores and optimizes heterogeneous platform architectures
+for Synchronous Data Flow (SDF) applications using a custom evolutionary algorithm.
+
+Architecture Exploration:
+    - 4 Tasks: a, b, c, d
+    - 4 PE Types: FPGA, GPP, ASIC, DSP (each with different cost and execution time)
+    - Custom chromosome: [Allocation Vector (4 ints)] + [Binding Vector (4 ints)]
+    - Flexible operators: Two-stage crossover + Multi-mode mutation with bus-aware relocation
+
+Optimization Objectives (Maximize/Minimize):
+    1. Maximize Throughput (samples/sec) - computed via SDF3
+    2. Minimize Total Cost (sum of allocated PE costs)
+    3. Minimize End-to-End Latency between specified actors (a → c)
+
+Key Features:
+    - Integration with SDF3 tool for accurate performance analysis
+    - Automatic XML generation in SDF3 format
+    - NSGA-II algorithm for Pareto front optimization
+    - Real-time visualization of evolution (generation plots)
+    - Comprehensive CSV logging (population data, Pareto fronts, summary statistics)
+
+Requirements:
+    - Python: deap, numpy, matplotlib, pandas
+    - External: SDF3 tool (compiled with path configured in run_sdf3 function)
+    - Platform: Linux/WSL (for SDF3 binary execution)
+
+Output Directories:
+    - evolution_plots/      : Generation-by-generation scatter plots
+    - evolution_data/       : CSV files with full population data and Pareto fronts
+
+"""
+
 import random
 import numpy as np
 import os
