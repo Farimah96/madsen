@@ -5,8 +5,8 @@ Multi-Objective Hardware/Software Co-Design for SADF Applications using NSGA-II
 Simple SADF implementation:
     - Each scenario is an independent SDF graph.
     - Each scenario has its own rates_matrix.
-    - Each scenario has a fixed binding based on PE TYPE.
-    - Architecture allocation is optimized by NSGA-II.
+    - Architecture allocation AND binding are both optimized by NSGA-II.
+      (binding is now part of the chromosome, one binding per scenario)
     - Communication is currently ignored.
     - Each candidate architecture is evaluated on all scenarios.
     - Overall SADF throughput = minimum scenario throughput.
@@ -73,11 +73,8 @@ class FlexibleArchProblem:
             [3, 2, 2, 1],
         ], dtype=float)
 
-
         # ==========================================================
-        # CHANGE:
-        # Instead of one rates_matrix, each scenario has its own
-        # rates_matrix.
+        # Each scenario has its own rates_matrix.
         # ==========================================================
 
         self.scenario_rates = {
@@ -107,50 +104,38 @@ class FlexibleArchProblem:
             ]
         }
 
-
-        # ==========================================================
-        # CHANGE:
-        # Fixed binding for each scenario.
-        #
-        # Binding is defined by PE TYPE.
-        #
-        # Example:
-        #     "a": "fpga"
-        #
-        # means actor a must execute on an FPGA.
-        # ==========================================================
-
-        self.scenario_bindings = {
-
-            "s1": {
-                "a": "fpga",
-                "b": "gpp",
-                "c": "fpga",
-                "d": "dsp"
-            },
-
-            "s2": {
-                "a": "gpp",
-                "b": "fpga",
-                "c": "dsp",
-                "d": "gpp"
-            },
-
-            "s3": {
-                "a": "asic",
-                "b": "dsp",
-                "c": "gpp",
-                "d": "gpp"
-            }
-        }
-
-
         self.max_alloc = 4
+
+        # ==========================================================
+        # NEW:
+        # Binding is now part of the chromosome instead of a fixed
+        # table. We just need a stable ordering of scenarios and the
+        # number of binding genes (one gene per task, per scenario).
+        # ==========================================================
+
+        self.scenario_names = list(self.scenario_rates.keys())   # ["s1", "s2", "s3"]
+        self.n_scenarios = len(self.scenario_names)
+
+        # one binding gene per (scenario, task) pair
+        self.n_binding_genes = self.n_scenarios * self.n_tasks
+
+        # total chromosome length = allocation genes + binding genes
+        self.chromosome_length = self.n_types + self.n_binding_genes
 
 
     def allocation_to_platform(self, alloc_vector):
 
-        """Convert allocation vector to platform list of PE types"""
+        """
+        Convert an allocation vector (how many PEs of each type) into
+        an explicit list of physical PEs.
+
+        Example:
+            alloc_vector = [2, 1, 0, 1]   (fpga, gpp, asic, dsp)
+            -> platform  = ["fpga", "fpga", "gpp", "dsp"]
+
+        This list's INDEX is the physical tile id used everywhere else
+        (in binding_to_mapping, in the generated SDF3 XML, etc).
+        """
 
         platform = []
 
@@ -165,32 +150,89 @@ class FlexibleArchProblem:
         return platform
 
 
-    # ==========================================================
-    # CHANGE:
-    # ==========================================================
-
     def binding_to_mapping(self, platform, binding):
+
+        """
+        Convert a symbolic binding (task -> PE TYPE, e.g. "a": "fpga")
+        into a physical mapping (task -> physical tile index, e.g. "a": 2).
+
+        binding says WHAT KIND of PE a task must run on.
+        mapping says WHICH SPECIFIC physical tile it runs on.
+
+        We need this translation because the chromosome/binding only
+        knows about PE *types*, not about how many physical tiles of
+        each type actually exist in this candidate architecture -- and
+        SDF3 needs a concrete tile index for every actor.
+        """
 
         mapping = {}
         type_counter = {}
 
         for task in self.tasks:
+
             pe_type = binding[task]
 
+            # how many tasks (before this one) already asked for this type
             idx = type_counter.get(pe_type, 0)
             type_counter[pe_type] = idx + 1
 
             candidate_pes = [
-                pe_index for pe_index, p_type in enumerate(platform)
+                pe_index
+                for pe_index, p_type in enumerate(platform)
                 if p_type == pe_type
             ]
 
             if not candidate_pes:
+                # This platform has zero PEs of the required type ->
+                # this candidate architecture cannot run this binding.
                 return None
 
+            # Distribute tasks that need the same PE type across all
+            # available tiles of that type, round-robin, using an
+            # index that is local to this PE type (not the task's
+            # global index) so it actually spreads them out.
             mapping[task] = candidate_pes[idx % len(candidate_pes)]
 
         return mapping
+
+
+# ==============================
+# NEW: Decode binding genes from chromosome
+# ==============================
+
+def decode_bindings(individual):
+    """
+    Chromosome layout:
+
+        [ alloc genes (n_types) ] + [ binding genes (n_scenarios * n_tasks) ]
+
+    The binding genes are small integers in [0, n_types - 1] that are
+    decoded into PE type names. Returns:
+
+        { scenario_name: { task: pe_type_string } }
+    """
+
+    binding_genes = individual[
+        problem.n_types : problem.n_types + problem.n_binding_genes
+    ]
+
+    bindings = {}
+    gene_idx = 0
+
+    for scenario_name in problem.scenario_names:
+
+        binding = {}
+
+        for task in problem.tasks:
+
+            type_index = int(binding_genes[gene_idx]) % problem.n_types
+            binding[task] = problem.pe_types[type_index]
+            gene_idx += 1
+
+        bindings[scenario_name] = binding
+
+    return bindings
+
 
 # ==============================
 # SDF Application Classes
@@ -199,9 +241,9 @@ class FlexibleArchProblem:
 class Actor:
 
     def __init__(
-            self,
-            name,
-            exec_time
+        self,
+        name,
+        exec_time
     ):
 
         self.name = name
@@ -213,12 +255,12 @@ class Actor:
 class Channel:
 
     def __init__(
-            self,
-            src_actor,
-            src_port,
-            dst_actor,
-            dst_port,
-            init_tokens=0
+        self,
+        src_actor,
+        src_port,
+        dst_actor,
+        dst_port,
+        init_tokens=0
     ):
 
         self.src_actor = src_actor
@@ -231,8 +273,8 @@ class Channel:
 class SDFApplication:
 
     def __init__(
-            self,
-            name="app"
+        self,
+        name="app"
     ):
 
         self.name = name
@@ -245,10 +287,10 @@ class SDFApplication:
 # ==============================
 
 def generate_sdf3_xml(
-        app,
-        platform,
-        mapping,
-        filename
+    app,
+    platform,
+    mapping,
+    filename
 ):
 
     """Generate SDF3 XML file from application, platform and mapping"""
@@ -415,8 +457,8 @@ def generate_sdf3_xml(
     # ==============================
 
     for idx, ch in enumerate(
-            app.channels,
-            start=1
+        app.channels,
+        start=1
     ):
 
         ch_name = f"ch{idx}"
@@ -478,9 +520,9 @@ def generate_sdf3_xml(
 
 
         if (
-                assigned_processor_type
-                and
-                assigned_processor_type in actor.exec_time
+            assigned_processor_type
+            and
+            assigned_processor_type in actor.exec_time
         ):
 
             proc = ET.SubElement(
@@ -536,8 +578,8 @@ def generate_sdf3_xml(
     # Channel properties
 
     for idx, ch in enumerate(
-            app.channels,
-            start=1
+        app.channels,
+        start=1
     ):
 
         ch_name = f"ch{idx}"
@@ -585,9 +627,9 @@ def generate_sdf3_xml(
 
 
     with open(
-            filename,
-            "w",
-            encoding="utf-8"
+        filename,
+        "w",
+        encoding="utf-8"
     ) as f:
 
         f.write(pretty_xml)
@@ -614,11 +656,11 @@ def run_sdf3(xml_file):
 
 
     env["LD_LIBRARY_PATH"] = (
-            "/mnt/d/SDF3/sdf3/build/release/Linux/lib:"
-            + env.get(
-        "LD_LIBRARY_PATH",
-        ""
-    )
+        "/mnt/d/SDF3/sdf3/build/release/Linux/lib:"
+        + env.get(
+            "LD_LIBRARY_PATH",
+            ""
+        )
     )
 
 
@@ -717,24 +759,22 @@ toolbox = base.Toolbox()
 
 
 # ==========================================================
-# CHANGE:
-# Chromosome now contains ONLY allocation.
+# Chromosome layout:
 #
-# Example:
+#   [ alloc genes (n_types) ] + [ binding genes (n_scenarios * n_tasks) ]
 #
-# [2, 1, 1, 2]
+# Example (n_types=4, n_scenarios=3, n_tasks=4):
 #
-# means:
-#   2 FPGA
-#   1 GPP
-#   1 ASIC
-#   2 DSP
+#   [2, 1, 1, 2,           <- allocation: fpga, gpp, asic, dsp counts
+#    0, 1, 0, 3,           <- s1 binding: a->fpga, b->gpp, c->fpga, d->dsp
+#    1, 0, 3, 1,           <- s2 binding
+#    2, 3, 1, 0]           <- s3 binding
 #
-# Binding is NOT part of chromosome anymore.
+# Both allocation AND binding are now optimized by NSGA-II.
 # ==========================================================
 
 def init_individual():
-    """Initialize individual: allocation is optimized, binding is fixed."""
+    """Initialize individual: allocation AND binding are both optimized."""
 
     alloc = np.random.randint(
         1,
@@ -742,7 +782,16 @@ def init_individual():
         size=problem.n_types
     )
 
-    return creator.Individual(list(alloc))
+    # NEW: random binding genes (one per scenario per task)
+    binding_genes = np.random.randint(
+        0,
+        problem.n_types,
+        size=problem.n_binding_genes
+    )
+
+    genome = list(alloc) + list(binding_genes)
+
+    return creator.Individual(genome)
 
 
 toolbox.register(
@@ -764,47 +813,39 @@ toolbox.register(
 # ==============================
 
 def custom_crossover(
-        ind1,
-        ind2
+    ind1,
+    ind2
 ):
 
     """
-    Crossover for allocation-only chromosomes.
+    Crossover over the FULL chromosome (allocation genes + binding genes).
+    A single crossover point is picked anywhere in the whole genome, so
+    offspring can mix allocation and binding material freely.
     """
 
-
-    n_types = problem.n_types
-
-
-    # Allocation crossover
+    total_len = problem.chromosome_length
 
     point = random.randint(
         1,
-        n_types - 1
+        total_len - 1
     )
-
 
     ind1[:point], ind2[:point] = (
         ind2[:point],
         ind1[:point]
     )
 
-
-    # ==========================================================
-    # CHANGE:
-    # Binding crossover removed because binding is fixed
-    # for each scenario.
-    # ==========================================================
-
-
-    # Repair allocation
+    # Repair only the allocation part.
+    # Binding genes are always valid integers in [0, n_types - 1]
+    # after crossover (they were valid before, and swapping doesn't
+    # break that), so they need no repair.
 
     for ind in (
-            ind1,
-            ind2
+        ind1,
+        ind2
     ):
 
-        for i in range(n_types):
+        for i in range(problem.n_types):
 
             ind[i] = max(
                 1,
@@ -813,7 +854,6 @@ def custom_crossover(
                     int(ind[i])
                 )
             )
-
 
     return ind1, ind2
 
@@ -825,23 +865,18 @@ def custom_crossover(
 def custom_mutation(ind):
 
     """
-    Mutation for allocation-only chromosomes.
+    Mutation for allocation genes AND binding genes.
     """
-
-
-    n_types = problem.n_types
-
 
     # Mutate allocation
 
-    for i in range(n_types):
+    for i in range(problem.n_types):
 
         if random.random() < 0.3:
 
             delta = random.choice(
                 [-1, 1]
             )
-
 
             ind[i] = max(
                 1,
@@ -851,13 +886,20 @@ def custom_mutation(ind):
                 )
             )
 
+    # NEW: Mutate binding genes -- each gene has a 30% chance of being
+    # reassigned to a random PE type.
 
-    # ==========================================================
-    # CHANGE:
-    # Binding mutation removed because binding is fixed
-    # for each scenario.
-    # ==========================================================
+    for i in range(
+        problem.n_types,
+        problem.n_types + problem.n_binding_genes
+    ):
 
+        if random.random() < 0.3:
+
+            ind[i] = random.randint(
+                0,
+                problem.n_types - 1
+            )
 
     return ind,
 
@@ -884,14 +926,15 @@ toolbox.register(
 # Scenario Application Builder
 # ==============================
 
-# ==========================================================
-# CHANGE:
-# Build an SDF application from one scenario's rates_matrix.
-# ==========================================================
-
 def build_scenario_application(
-        scenario_name
+    scenario_name
 ):
+
+    """
+    Build an SDF application (actors + channels) from one scenario's
+    rates_matrix. This is completely independent of platform/binding --
+    it only describes the algorithm graph.
+    """
 
     rates_matrix = problem.scenario_rates[
         scenario_name
@@ -906,14 +949,14 @@ def build_scenario_application(
     # Create actors
 
     for i, task in enumerate(
-            problem.tasks
+        problem.tasks
     ):
 
         exec_times = {}
 
 
         for j, pe_type in enumerate(
-                problem.pe_types
+            problem.pe_types
         ):
 
             exec_times[pe_type] = (
@@ -933,11 +976,11 @@ def build_scenario_application(
     # Create channels
 
     for i in range(
-            problem.n_tasks
+        problem.n_tasks
     ):
 
         for j in range(
-                problem.n_tasks
+            problem.n_tasks
         ):
 
             (
@@ -948,9 +991,9 @@ def build_scenario_application(
 
 
             if (
-                    prod_rate > 0
-                    and
-                    cons_rate > 0
+                prod_rate > 0
+                and
+                cons_rate > 0
             ):
 
                 src_actor = problem.tasks[i]
@@ -1001,41 +1044,25 @@ def build_scenario_application(
 # Evaluation
 # ==============================
 
-# ==========================================================
-# CHANGE:
-# evaluate() now receives generation and candidate_index
-# so that XML files can be stored permanently and organized.
-# ==========================================================
-
 def evaluate(
-        individual,
-        generation,
-        candidate_index
+    individual,
+    generation,
+    candidate_index
 ):
 
     """
-    Evaluate one architecture on all SADF scenarios.
+    Evaluate one architecture (allocation + binding, both taken from
+    the chromosome) on all SADF scenarios.
     """
-
-
-    # ==========================================================
-    # CHANGE:
-    # Chromosome contains only allocation.
-    # ==========================================================
 
     alloc = individual[:problem.n_types]
 
-    # Build architecture
+    # Build architecture (list of physical PEs)
 
     platform = problem.allocation_to_platform(alloc)
 
-    # ==========================================================
-    # CHANGE:
-    # Create a directory specifically for this generation.
-    #
-    # Example:
-    # sadf_xml_files/generation_001/
-    # ==========================================================
+    # NEW: decode all scenario bindings from this individual's chromosome
+    bindings = decode_bindings(individual)
 
     generation_dir = os.path.join(
         XML_OUTPUT_DIR,
@@ -1054,17 +1081,15 @@ def evaluate(
     scenario_throughputs = {}
 
 
-    # ==========================================================
-    # CHANGE:
     # Evaluate every scenario independently.
-    # ==========================================================
 
-    for scenario_name in problem.scenario_rates.keys():
+    for scenario_name in problem.scenario_names:
 
 
-        # Fixed binding for this scenario
+        # CHANGED: binding now comes from the chromosome (evolved),
+        # not from a fixed table.
 
-        binding = problem.scenario_bindings[scenario_name]
+        binding = bindings[scenario_name]
 
 
         # Convert PE-type binding into physical mapping
@@ -1089,18 +1114,6 @@ def evaluate(
             scenario_name
         )
 
-
-        # ======================================================
-        # CHANGE:
-        # Save XML permanently instead of deleting it.
-        #
-        # Example:
-        #
-        # generation_001/
-        #   candidate_000_s1.xml
-        #   candidate_000_s2.xml
-        #   candidate_000_s3.xml
-        # ======================================================
 
         xml_filename = (
             f"candidate_{candidate_index:03d}_"
@@ -1136,11 +1149,8 @@ def evaluate(
         ] = throughput
 
 
-    # ==========================================================
-    # CHANGE:
-    # Overall SADF throughput is currently defined as
+    # Overall SADF throughput is defined as
     # the worst-case scenario throughput.
-    # ==========================================================
 
     overall_throughput = min(
         scenario_throughputs.values()
@@ -1166,20 +1176,15 @@ def evaluate(
         overall_throughput,
         cost
     )
-    ################################################################# tempppppppp
-    print(
-        f"Allocation={list(alloc)} | "
-        f"Scenario throughputs={scenario_throughputs} | "
-        f"Overall={overall_throughput}"
-    )
+
 
 # ==============================
 # Plot Utilities
 # ==============================
 
 def save_evolution_plot(
-        population,
-        generation
+    population,
+    generation
 ):
 
     """Save plot for each generation"""
@@ -1395,11 +1400,6 @@ def main():
     cleanup_old_xml_files()
 
 
-    # ==========================================================
-    # CHANGE:
-    # Population size
-    # ==========================================================
-
     POP_SIZE = 30
 
     NGEN = 20
@@ -1416,13 +1416,10 @@ def main():
     )
 
 
-    # ==========================================================
-    # CHANGE:
-    # Evaluate initial population WITHOUT SCOOP.
+    # Evaluate initial population.
     #
     # Candidate index is explicitly passed so XML files can
     # be stored as candidate_000, candidate_001, ...
-    # ==========================================================
 
     for candidate_index, ind in enumerate(pop):
 
@@ -1448,8 +1445,8 @@ def main():
     # ==============================
 
     for gen in range(
-            1,
-            NGEN + 1
+        1,
+        NGEN + 1
     ):
 
 
@@ -1464,7 +1461,7 @@ def main():
 
 
         for candidate_index, ind in enumerate(
-                offspring
+            offspring
         ):
 
             fit = evaluate(
@@ -1545,22 +1542,21 @@ def main():
     )
 
 
-    # ==========================================================
-    # CHANGE:
     # Print unique Pareto solutions only.
     #
-    # This prevents printing 100 identical copies of the same
-    # architecture when MU=100.
-    # ==========================================================
+    # This prevents printing many identical copies of the same
+    # architecture+binding when several individuals converge to it.
+    #
+    # NEW: the "key" now includes the binding genes too (not just
+    # allocation), since two individuals with the same allocation but
+    # different bindings are different solutions.
 
     unique_solutions = {}
 
 
     for ind in front:
 
-        architecture = tuple(
-            ind[:problem.n_types]
-        )
+        genome_key = tuple(ind[:problem.chromosome_length])
 
 
         fitness = (
@@ -1570,7 +1566,7 @@ def main():
 
 
         unique_solutions[
-            architecture
+            genome_key
         ] = fitness
 
 
@@ -1582,8 +1578,8 @@ def main():
 
 
     for i, (
-            architecture,
-            fitness
+        genome_key,
+        fitness
     ) in enumerate(
         sorted_solutions
     ):
@@ -1591,13 +1587,26 @@ def main():
         throughput = fitness[0]
         cost = fitness[1]
 
+        architecture = list(genome_key[:problem.n_types])
+
+        # NEW: decode the bindings for display purposes
+        fake_ind = list(genome_key)
+        bindings = decode_bindings(fake_ind)
+
 
         print(
             f"{i + 1}. "
-            f"Architecture={list(architecture)} | "
+            f"Architecture={architecture} | "
             f"Throughput={throughput:.6f} | "
             f"Cost={cost:.2f}"
         )
+
+        for scenario_name in problem.scenario_names:
+
+            print(
+                f"     {scenario_name} binding: "
+                f"{bindings[scenario_name]}"
+            )
 
 
 if __name__ == "__main__":
